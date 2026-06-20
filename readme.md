@@ -42,6 +42,12 @@ Download the latest archive from the [Releases](https://github.com/PoXiao-zero/e
 
 ### 安装 Installation
 
+> ⚠️ 安全提示 Safety Warning：
+> 
+> 请勿在终端中随意运行来自互联网的未知脚本或命令，以免造成系统安全风险。
+> 
+> Do not run unknown scripts or commands from the internet in the Terminal to avoid potential system security risks.
+
 1. 打开 Mac 自带的 **终端** 应用程序。
 
    Open the built-in **Terminal** application on your Mac.
