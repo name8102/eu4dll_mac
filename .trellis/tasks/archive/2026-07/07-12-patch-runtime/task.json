@@ -1,0 +1,32 @@
+{
+  "id": "patch-runtime",
+  "name": "patch-runtime",
+  "title": "Deepen patch installation runtime",
+  "description": "Concentrate pattern scanning, patch validation, memory mutation, hook payloads, and diagnostics in a testable runtime.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "memoryHelper, installation tracking, patch descriptions, Mach and byte-buffer adapters, runtime tests",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "src/memoryHelper.cpp",
+    "src/memoryHelper.h",
+    "src/global.h",
+    "src/runtime/",
+    "tests/runtime/"
+  ],
+  "notes": "Depends on baseline-build-skeleton.",
+  "meta": {}
+}

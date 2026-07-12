@@ -1,0 +1,30 @@
+{
+  "id": "macos-target-profile",
+  "name": "macos-target-profile",
+  "title": "Create exact macOS EU4 1.37.5 target profile",
+  "description": "Create the exact macOS x86-64 EU4 1.37.5 target profile and reject unsupported executables before mutation without treating storefront as a binary dimension.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "startup validation, patterns, offsets, symbols, object layouts, binary fixtures, target adapters",
+  "package": null,
+  "priority": "P2",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "library.cpp",
+    "src/targets/eu4_1_37_5/",
+    "tests/fixtures/"
+  ],
+  "notes": "Depends on patch-runtime; no general multi-version support.",
+  "meta": {}
+}

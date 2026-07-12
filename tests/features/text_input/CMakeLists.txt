@@ -1,0 +1,4 @@
+add_executable(eu4dll_text_input_tests ../text_input_test.cpp)
+target_compile_features(eu4dll_text_input_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_text_input_tests PRIVATE eu4dll_text_input)
+add_test(NAME eu4dll.text_input COMMAND eu4dll_text_input_tests)

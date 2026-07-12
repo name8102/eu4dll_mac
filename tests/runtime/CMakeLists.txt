@@ -1,0 +1,17 @@
+add_executable(eu4dll_patch_runtime_tests patch_runtime_tests.cpp)
+target_compile_features(eu4dll_patch_runtime_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_patch_runtime_tests PRIVATE eu4dll_runtime)
+
+add_test(NAME eu4dll.patch_runtime COMMAND eu4dll_patch_runtime_tests)
+
+add_executable(eu4dll_startup_diagnostics_tests startup_diagnostics_tests.cpp)
+target_compile_features(eu4dll_startup_diagnostics_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_startup_diagnostics_tests PRIVATE eu4dll_runtime)
+
+add_test(NAME eu4dll.startup_diagnostics COMMAND eu4dll_startup_diagnostics_tests)
+
+add_executable(eu4dll_patch_manifest_tests patch_manifest_tests.cpp)
+target_compile_features(eu4dll_patch_manifest_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_patch_manifest_tests PRIVATE eu4dll_runtime)
+
+add_test(NAME eu4dll.patch_manifest COMMAND eu4dll_patch_manifest_tests)

@@ -8,12 +8,30 @@ This project is the macOS implementation of the [matanki-saito/EU4dll](https://g
 
 Special thanks to the contributions of the original project; without it, this project wouldn't exist.
 
-* 本项目基于`EU4 1.37.5`版本开发，理论上也支持其他1.37版本，但不会支持低于1.37的版本。
+* 本项目支持 macOS x86-64 的 `EU4 1.37.x` 二进制；EU4 只有 x86-64 目标，发行商或发行渠道不影响二进制能力识别，其他游戏版本不受支持。
 * 原项目中使用 `¿` 字符开启颠倒姓名的功能未实现。
 
 
-* This project is developed based on the `GOG version of EU4 1.37.5`. Theoretically, it supports other 1.37 versions, but versions below 1.37 will not be supported.
+* This project supports macOS x86-64 `EU4 1.37.x` binaries. EU4 targets x86-64, and publisher or storefront labels do not affect binary capability identification; other game versions are unsupported.
 * The feature from the original project that uses the `¿` character to reverse names has not been implemented.
+
+## Build and verification
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4 --target eu4dll_tests
+ctest --test-dir build --output-on-failure
+```
+
+The release artifacts are macOS x86-64 only and explicitly target macOS 11.0
+instead of inheriting the build host SDK minimum. A first clean configure may
+fetch pinned cpp-pinyin 1.0.2; later test builds can reuse that source offline.
+
+Read-only capability preflight passed the same canonical registry of 55 patch
+sites and 16 required symbols on locally installed EU4 1.37.4.0 and 1.37.5.0
+macOS x86-64 executables. This is strong executable compatibility evidence, but
+does not replace launched in-process verification of rendering, input, save,
+and localization behavior.
 
 ## 运行截图 Screenshots
 

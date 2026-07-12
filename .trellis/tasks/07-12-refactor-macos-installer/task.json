@@ -1,0 +1,31 @@
+{
+  "id": "refactor-macos-installer",
+  "name": "refactor-macos-installer",
+  "title": "Refactor and test the macOS installer",
+  "description": "Refactor install.sh into testable, fail-safe installation and uninstall flows with manifest integration and a non-destructive fake-app harness.",
+  "status": "in_progress",
+  "dev_type": "refactor",
+  "scope": "install.sh structure, transaction and rollback behavior, manifest integration, multilingual messaging, fake-app integration tests",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "install.sh",
+    "tests/installer/",
+    ".github/workflows/build.yml",
+    ".github/workflows/build-test.yml"
+  ],
+  "notes": "Separate task requested by the user after manifest integration. Tests must never modify a real EU4 installation.",
+  "meta": {}
+}

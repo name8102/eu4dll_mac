@@ -1,0 +1,32 @@
+{
+  "id": "text-input-ime",
+  "name": "text-input-ime",
+  "title": "Separate text input and macOS IME adapter",
+  "description": "Separate portable text editing, the macOS input-method adapter, and EU4 text-buffer hooks.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "input events, normalized composition, cursor/backspace behavior, macOS IME, target hooks, conformance tests",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "src/input.cpp",
+    "src/input.h",
+    "src/features/text_input/",
+    "src/platform/macos/input/",
+    "tests/features/"
+  ],
+  "notes": "Depends on macos-target-profile and escaped-text; other platforms require separate adapters.",
+  "meta": {}
+}

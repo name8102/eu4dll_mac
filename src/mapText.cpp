@@ -1,7 +1,15 @@
 #include "mapText.h"
-#include "global.h"
+#include "features/escaped_text/escaped_text.h"
+#include "features/text_rendering/text_rendering.h"
+#include "platform/macos/symbol_lookup.h"
+#include "runtime/diagnostics/startup_diagnostics.h"
+#include "targets/eu4_1_37_5/macos_x86_64/hook_symbols.h"
+#include "targets/eu4_1_37_5/macos_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/macos_x86_64/text_rendering/rendering_patch.h"
 
 namespace mapText {
+    namespace target = eu4dll::targets::eu4_1_37_5::macos_x86_64;
+    namespace renderingPatch = target::text_rendering;
     extern "C" {
     uintptr_t g_AddNameArea_3_BypassAddr = 0;
     uintptr_t g_AddNameArea_1_RetAddr = 0;
@@ -65,10 +73,10 @@ namespace mapText {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4)
         );
     }
 
@@ -77,26 +85,15 @@ namespace mapText {
  作用：不断尝试在每个字中间添加X个空格，使其总体宽度能够填满地图区域。找到最合适的间距后，调用FillVertexBuffer生成顶点。
  */
     void install_CGenerateNamesWork_AddNameArea_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "43 8A 04 37 88 85 28 FF FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapAddNameSpacing,
+                reinterpret_cast<uintptr_t>(naked_CGenerateNamesWork_AddNameArea_1),
+                {{"return", &g_AddNameArea_1_RetAddr},
+                 {"bypass", &g_AddNameArea_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 4;
-
-        g_AddNameArea_1_BypassAddr = leaAddress + 0x1C;
-        g_AddNameArea_1_RetAddr = leaAddress + 0x72;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CGenerateNamesWork_AddNameArea_1);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_AddNameArea_1_RetAddr, g_AddNameArea_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CGenerateNamesWork_AddNameArea_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void proxy_CGenerateNamesWork_AddNameArea_ToUpper_2() {
@@ -168,10 +165,10 @@ namespace mapText {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4)
         );
     }
 
@@ -180,22 +177,22 @@ namespace mapText {
  作用：替换ToUpper CALL，避免将标识符后面的字节当成小写字符从而导致文字改变
  */
     void install_CGenerateNamesWork_AddNameArea_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "FF FF FF E8 ? ? ? ? 31 C0 4C 8D 85 B8 FD FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        g_OriginalToUpper_Addr = eu4dll::platform::macos::ResolveLiveSymbol(
+            "rendering.map.add-name-area.uppercase", target::kDiagnosticTargetId,
+            target::symbols::kToUpper);
+        if (g_OriginalToUpper_Addr == nullptr) {
+            printf("eu4dll_mac [Error] rendering.map.add-name-area.uppercase "
+                   "symbol lookup failed: %s\n", target::symbols::kToUpper);
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 3;
-        g_OriginalToUpper_Addr = findFn("__toupper");
-        ReplaceCall(leaAddress, (uintptr_t) proxy_CGenerateNamesWork_AddNameArea_ToUpper_2);
-        printf("eu4dll_mac [Success] %s ReplaceCall 匹配地址:0x%lx 写入地址:0x%lx ToUpper地址:%p\n", __func__,
-               matchAddress, leaAddress, g_OriginalToUpper_Addr);
-        OptimizeNakedHook((uintptr_t) proxy_CGenerateNamesWork_AddNameArea_ToUpper_2);
-        SET_SUCCESS();
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapAddNameUppercase,
+                reinterpret_cast<uintptr_t>(proxy_CGenerateNamesWork_AddNameArea_ToUpper_2),
+                {}})) {
+            return;
+        }
+        installGuard.MarkSuccess();
     }
 
 
@@ -242,22 +239,24 @@ namespace mapText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
 
-                "mov rax, [r14+rax*8+0xE8] \n"
+                "mov rax, [r14+rax*8+%c[glyph_table]] \n"
 
                 "jmp qword ptr [rip + _g_AddNameArea_3_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -266,22 +265,14 @@ namespace mapText {
  作用：使其能正确识别字符数
  */
     void install_CGenerateNamesWork_AddNameArea_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 49 8B 84 C6 E8 00 00 00 48 85 C0 74 0D";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapAddNameGlyphCount,
+                reinterpret_cast<uintptr_t>(naked_CGenerateNamesWork_AddNameArea_3),
+                {{"bypass", &g_AddNameArea_3_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_AddNameArea_3_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CGenerateNamesWork_AddNameArea_3);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_AddNameArea_3_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CGenerateNamesWork_AddNameArea_3);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -328,22 +319,24 @@ namespace mapText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
 
                 "7: \n"
 
-                "mov rax, [r15+rax*8+0xE8] \n"
+                "mov rax, [r15+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_FillVertexBuffer_1_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -352,22 +345,14 @@ namespace mapText {
  作用：使其能正确识别双字节字符
  */
     void install_CBitmapFont_FillVertexBuffer_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 49 8B 84 C7 E8 00 00 00 48 85 C0 0F 84 46 03 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapFillVertexGlyph,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_FillVertexBuffer_1),
+                {{"bypass", &g_FillVertexBuffer_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_FillVertexBuffer_1_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_FillVertexBuffer_1);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_FillVertexBuffer_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_FillVertexBuffer_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_FillVertexBuffer_2() {
@@ -425,20 +410,22 @@ namespace mapText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
-                "mov r13, [r15+rax*8+0xE8] \n"
+                "mov r13, [r15+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_FillVertexBuffer_2_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -447,22 +434,14 @@ namespace mapText {
  作用：使其能正确识别双字节字符
  */
     void install_CBitmapFont_FillVertexBuffer_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 4D 8B AC C7 E8 00 00 00 4D 85 ED";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapFillVertexMeasure,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_FillVertexBuffer_2),
+                {{"bypass", &g_FillVertexBuffer_2_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_FillVertexBuffer_2_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_FillVertexBuffer_2);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_FillVertexBuffer_2_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_FillVertexBuffer_2);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -512,7 +491,7 @@ namespace mapText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
 
                 "7: \n"
 
@@ -522,13 +501,14 @@ namespace mapText {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset)
         );
     }
 
@@ -537,23 +517,14 @@ namespace mapText {
  作用：将FillVertexBuffer函数生成的文字顶点网格贴合地图曲线
  */
     void install_CurveText_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 4D 8B 3C C4 4D 85 FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapCurveGlyph,
+                reinterpret_cast<uintptr_t>(naked_CurveText_1),
+                {{"bypass", &g_CurveText_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_CurveText_1_BypassAddr = leaAddress + 7;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CurveText_1);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_CurveText_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CurveText_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -574,24 +545,14 @@ namespace mapText {
  作用：将外部维护的计数在每一次循环前清零
  */
     void install_CurveText_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "F3 41 0F 2A CE 41 BE 00 00 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapCurveReset,
+                reinterpret_cast<uintptr_t>(naked_CurveText_2),
+                {{"bypass", &g_CurveText_2_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 5;
-        g_CurveText_2_BypassAddr = leaAddress + 6;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CurveText_2);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_CurveText_2_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CurveText_2);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -611,37 +572,19 @@ namespace mapText {
  作用：将已存储的文本真实长度传递给变量进行对比，避免循环内重复遍历。
  */
     void install_CurveText_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "F3 0F 11 45 CC 4C 89 EF E8";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapCurveLength,
+                reinterpret_cast<uintptr_t>(naked_CurveText_3),
+                {{"bypass", &g_CurveText_3_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 5;
-        g_CurveText_3_BypassAddr = leaAddress + 8;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CurveText_3);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_CurveText_3_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CurveText_3);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
     uint64_t proxy_CurveText_GetSize_CStringGetSize_4(std::string *cstring_this) {
-        uint64_t count = 0;
-        uint64_t size = cstring_this->length();
-        for (int i = 0; i < size; i++) {
-            unsigned char c = (*cstring_this)[i];
-            if (c == ESCAPE_SEQ_1 || c == ESCAPE_SEQ_2 || c == ESCAPE_SEQ_3 || c == ESCAPE_SEQ_4) {
-                i += 2;
-            }
-            count++;
-        }
-        return count;
+        return eu4dll::text_rendering::logical_character_count(*cstring_this);
     }
 
 /**
@@ -649,23 +592,20 @@ namespace mapText {
  作用：替换getSize CALL获取真实字符长度以便循环遍历
  */
     void install_CurveText_4() {
-        TRACK_FUNCTION();
-        std::string pattern = "41 89 C6 4C 89 EF E8 ? ? ? ? 41 89 C7 4C 89 EF E8 ? ? ? ? 48 89 85 70 FF FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapCurveLogicalSizeFirst,
+                reinterpret_cast<uintptr_t>(proxy_CurveText_GetSize_CStringGetSize_4),
+                {}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 6;
-        ReplaceCall(leaAddress, (uintptr_t) proxy_CurveText_GetSize_CStringGetSize_4);
-        uintptr_t replaceAddress1 = leaAddress;
-        leaAddress = leaAddress + 11;
-        ReplaceCall(leaAddress, (uintptr_t) proxy_CurveText_GetSize_CStringGetSize_4);
-        printf("eu4dll_mac [Success] %s ReplaceCall 匹配地址:0x%lx 写入地址1:0x%lx 写入地址2:0x%lx\n", __func__,
-               matchAddress, replaceAddress1, leaAddress);
-        SET_SUCCESS();
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapCurveLogicalSizeSecond,
+                reinterpret_cast<uintptr_t>(proxy_CurveText_GetSize_CStringGetSize_4),
+                {}})) {
+            return;
+        }
+        installGuard.MarkSuccess();
     }
 
 
@@ -711,24 +651,26 @@ namespace mapText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
 
-                "mov rax, [r14+rax*8+0xE8] \n"
+                "mov rax, [r14+rax*8+%c[glyph_table]] \n"
 
                 "jmp qword ptr [rip + _g_AddNudgedNames_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -737,23 +679,14 @@ namespace mapText {
  作用：使其正确识别双字节字符。不知道做啥的，HOOK看文本也没能看出个啥，文本量远不及AddNameArea
  */
     void install_CCountryNameCollection_AddNudgedNames() {
-        TRACK_FUNCTION();
-        std::string pattern = "44 89 EE E8 ? ? ? ? 0F B6 00 49 8B 84 C6 E8 00 00 00 48 85 C0 74";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::MapAddNudgedNames,
+                reinterpret_cast<uintptr_t>(naked_CCountryNameCollection_AddNudgedNames),
+                {{"bypass", &g_AddNudgedNames_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 8;
-        g_AddNudgedNames_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CCountryNameCollection_AddNudgedNames);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_AddNudgedNames_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CCountryNameCollection_AddNudgedNames);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 

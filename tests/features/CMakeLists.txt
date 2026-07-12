@@ -1,0 +1,9 @@
+add_executable(eu4dll_escaped_text_tests escaped_text_test.cpp)
+target_compile_features(eu4dll_escaped_text_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_escaped_text_tests PRIVATE eu4dll_portable_features)
+
+add_test(NAME eu4dll.features.escaped_text COMMAND eu4dll_escaped_text_tests)
+
+add_subdirectory(text_input)
+add_subdirectory(text_rendering)
+add_subdirectory(localization)

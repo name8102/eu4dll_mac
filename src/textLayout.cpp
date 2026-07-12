@@ -1,7 +1,12 @@
 #include "textLayout.h"
-#include "global.h"
+#include "features/escaped_text/escaped_text.h"
+#include "runtime/diagnostics/startup_diagnostics.h"
+#include "targets/eu4_1_37_5/macos_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/macos_x86_64/text_rendering/rendering_patch.h"
 
 namespace textLayout {
+    namespace target = eu4dll::targets::eu4_1_37_5::macos_x86_64;
+    namespace renderingPatch = target::text_rendering;
 
     extern "C" {
     uintptr_t g_GetHeightOfString_BypassAddr = 0;
@@ -65,21 +70,23 @@ namespace textLayout {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
 
                 "7: \n"
-                "mov rax, qword ptr [rbx+rax*8+0xE8] \n"
+                "mov rax, qword ptr [rbx+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_GetHeightOfString_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -88,22 +95,14 @@ namespace textLayout {
  作用：没感觉到什么太明显的影响，通过HOOK查看输入的文本好像都是教程相关的
  */
     void install_CBitmapFont_GetHeightOfString() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 48 8B 84 C3 E8 00 00 00 48 85 C0";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutHeight,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetHeightOfString),
+                {{"bypass", &g_GetHeightOfString_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetHeightOfString_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetHeightOfString);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetHeightOfString_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetHeightOfString);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -152,23 +151,25 @@ namespace textLayout {
 
                 "cmp esi, 256 \n"
                 "jb 7f \n"
-                "add esi, 1712 \n"
+                "add esi, %c[go] \n"
 
                 "7: \n"
-                "mov rbx, [rdi+rsi*8+0xE8] \n"
+                "mov rbx, [rdi+rsi*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_GetWidthOfString_RetAddr] \n"
 
                 "8: \n"
                 "jmp qword ptr [rip + _g_GetWidthOfString_BypassAddr] \n"
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -177,23 +178,15 @@ namespace textLayout {
  作用：使其能正确识别双字节字符
  */
     void install_CBitmapFont_GetWidthOfString() {
-        TRACK_FUNCTION();
-        std::string pattern = "48 8B 9C F7 E8 00 00 00 48 85 DB";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutWidth,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetWidthOfString),
+                {{"return", &g_GetWidthOfString_RetAddr},
+                 {"bypass", &g_GetWidthOfString_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetWidthOfString_RetAddr = leaAddress + 8;
-        g_GetWidthOfString_BypassAddr = leaAddress + 0x1C6;
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetWidthOfString);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_GetWidthOfString_RetAddr, g_GetWidthOfString_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetWidthOfString);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -239,20 +232,22 @@ namespace textLayout {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
-                "mov rbx, qword ptr [r12+rax*8+0xE8] \n"
+                "mov rbx, qword ptr [r12+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_GetRequiredSize_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -261,22 +256,14 @@ namespace textLayout {
  作用：没感觉到什么明显的影响，通过HOOK查看输入文本，主要都是按钮文本
  */
     void install_CBitmapFont_GetRequiredSize() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 49 8B 9C C4 E8 00 00 00 48 85 DB";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutRequiredSize,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetRequiredSize),
+                {{"bypass", &g_GetRequiredSize_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetRequiredSize_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetRequiredSize);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetRequiredSize_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetRequiredSize);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_GetActualRealRequiredSizeActually_1() {
@@ -321,20 +308,22 @@ namespace textLayout {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
-                "mov rbx, qword ptr [r13+rax*8+0xE8] \n"
+                "mov rbx, qword ptr [r13+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_GetActualRealRequiredSizeActually_1_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset)
         );
     }
 
@@ -343,22 +332,14 @@ namespace textLayout {
  作用：主要是屏幕右侧的数据概览窗口
  */
     void install_CBitmapFont_GetActualRealRequiredSizeActually_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 49 8B 9C C5 E8 00 00 00 48 85 DB";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutActualRealGlyph,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetActualRealRequiredSizeActually_1),
+                {{"bypass", &g_GetActualRealRequiredSizeActually_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetActualRealRequiredSizeActually_1_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_1);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetActualRealRequiredSizeActually_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_GetActualRequiredSize() {
@@ -403,7 +384,7 @@ namespace textLayout {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
 
                 "7: \n"
                 "mov rcx, [rbp - 0x1128] \n"
@@ -411,13 +392,14 @@ namespace textLayout {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset)
         );
     }
 
@@ -426,22 +408,14 @@ namespace textLayout {
  作用：主要对地图文本显示大小有显著影响，防止越界
  */
     void install_CBitmapFont_GetActualRequiredSize() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 48 8B 8D D8 EE FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutActualRequiredSize,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetActualRequiredSize),
+                {{"bypass", &g_GetActualRequiredSize_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetActualRequiredSize_BypassAddr = leaAddress + 0xA;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetActualRequiredSize);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetActualRequiredSize_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetActualRequiredSize);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 /**
@@ -449,19 +423,12 @@ namespace textLayout {
  作用：强制所有字符都使用“空格”的超出边界换行检测逻辑分支，以解决游戏弹窗多余空行问题
  */
     void install_CBitmapFont_GetActualRequiredSize_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "41 0F BF 44 24 06 0F 57 C9 F3 0F 2A C8 F3 0F 59 D9 0F 2E 1D ? ? ? ? 75 37 7A 35";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutForceWrap, 0, {}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        WriteMemory(leaAddress, {0xEB, 0x1A, 0x90, 0x90, 0x90, 0x90});
-        printf("eu4dll_mac [Success] %s WriteMemory 匹配地址:0x%lx 写入地址:0x%lx\n", __func__,
-               matchAddress, leaAddress);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_GetActualRealRequiredSizeActually_2() {
@@ -493,22 +460,14 @@ namespace textLayout {
  作用：在循环的开始存储上一轮行宽
  */
     void install_CBitmapFont_GetActualRealRequiredSizeActually_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "8B 9D 4C FF FF FF FF C3 89 9D 4C FF FF FF 4C 89 E7";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutHistory,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetActualRealRequiredSizeActually_2),
+                {{"bypass", &g_GetActualRealRequiredSizeActually_2_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_GetActualRealRequiredSizeActually_2_BypassAddr = leaAddress + 6;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_2);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetActualRealRequiredSizeActually_2_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_2);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_GetActualRealRequiredSizeActually_3() {
@@ -564,23 +523,14 @@ namespace textLayout {
  作用：不使用原有的强制五字符截断逻辑，改为根据宽度计算截断位置
  */
     void install_CBitmapFont_GetActualRealRequiredSizeActually_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "48 83 BD E8 FE FF FF 05 0F 82 ? ? ? ? 48 8B 85 C8 FE FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutEllipsis,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_GetActualRealRequiredSizeActually_3),
+                {{"bypass", &g_GetActualRealRequiredSizeActually_3_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 0x15;
-        g_GetActualRealRequiredSizeActually_3_BypassAddr = leaAddress + 7;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_3);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_GetActualRealRequiredSizeActually_3_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_GetActualRealRequiredSizeActually_3);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 /**
@@ -588,21 +538,12 @@ namespace textLayout {
  作用：阻止截断
  */
     void install_CBitmapFont_GetActualRealRequiredSizeActually_4() {
-        TRACK_FUNCTION();
-        std::string pattern = "48 83 BD E8 FE FF FF 05 0F 82 ? ? ? ? 48 8B 85 C8 FE FF FF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::LayoutDisableTruncation, 0, {}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 8;
-        uint8_t patch[] = {0x90, 0xE9};
-        WriteMemory(leaAddress, patch, 2);
-        printf("eu4dll_mac [Success] %s WriteMemory 匹配地址:0x%lx 写入地址:0x%lx\n", __func__, matchAddress,
-               leaAddress);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     void install() {

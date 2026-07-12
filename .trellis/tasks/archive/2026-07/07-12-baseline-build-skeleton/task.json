@@ -1,0 +1,32 @@
+{
+  "id": "baseline-build-skeleton",
+  "name": "baseline-build-skeleton",
+  "title": "Establish baseline and modular build skeleton",
+  "description": "Capture the current macOS baseline and introduce a modular CMake/source skeleton without intended behavior changes.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "baseline characterization, source layout, CMake targets, artifact and resource preservation",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "CMakeLists.txt",
+    "library.cpp",
+    "library.h",
+    "src/",
+    "tests/"
+  ],
+  "notes": "First child task; must remain behavior-neutral.",
+  "meta": {}
+}

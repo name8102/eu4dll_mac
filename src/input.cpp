@@ -1,13 +1,31 @@
 
 #include "input.h"
-#include "global.h"
-#include "strConvert.h"
-#include <dlfcn.h>
+#include "features/escaped_text/escaped_text.h"
+#include "features/text_input/text_input.h"
+#include "platform/macos/input/input_method_adapter.h"
+#include "platform/macos/live_patch_runtime.h"
+#include "platform/macos/symbol_lookup.h"
+#include "runtime/diagnostics/patch_diagnostic.h"
+#include "runtime/diagnostics/startup_diagnostics.h"
+#include "targets/eu4_1_37_5/macos_x86_64/input/input_bridge.h"
+#include "targets/eu4_1_37_5/macos_x86_64/target_facts.h"
+
+#include <initializer_list>
+#include <iostream>
+#include <vector>
+
+extern "C" void eu4dll_capture_native_editing(const char *preedit) noexcept {
+    eu4dll::platform::macos::input::capture_native_editing(preedit);
+}
 
 namespace input {
+    namespace target = eu4dll::targets::eu4_1_37_5::macos_x86_64;
+    namespace macos_input = eu4dll::platform::macos::input;
+    namespace portable_input = eu4dll::text_input;
+    namespace target_input = target::input;
     extern "C" {
-    bool isImeComposing = false;
     bool isFirstEmpty = false;
+    bool g_BackspaceHandled = false;
     uintptr_t g_HandlePdxEvents_1_RetAddr = 0;
     uintptr_t g_HandleKeyEvent_1_RetAddr = 0;
     uintptr_t g_HandleKeyEvent_1_BypassAddr = 0;
@@ -26,10 +44,62 @@ namespace input {
     fnInstanceAction_t fnCTextBuffer_MoveRightCall;
     }
 
-    struct CCursorPosition {
-        uint16_t Col;
-        uint16_t Row;
+    namespace {
+    struct ContinuationBinding {
+        const char *name;
+        std::ptrdiff_t offset;
+        uintptr_t *storage;
     };
+
+    bool InstallInputPatch(const char *feature, const target::HookSite &site,
+                           eu4dll::patch::MutationKind mutationKind,
+                           uintptr_t mutationTarget,
+                           std::vector<std::uint8_t> expectedBytes,
+                           std::initializer_list<ContinuationBinding> continuations = {},
+                           bool optimize = false,
+                           eu4dll::patch::CallWidth callWidth =
+                               eu4dll::patch::CallWidth::Auto) {
+        eu4dll::patch::PatchDescription patch;
+        patch.feature = feature;
+        patch.target = target::kDiagnosticTargetId;
+        patch.location.pattern = site.pattern;
+        patch.expected = eu4dll::patch::ExpectedBytes{site.mutationOffset,
+                                                       std::move(expectedBytes), {}};
+        patch.mutation.kind = mutationKind;
+        patch.mutation.offset = site.mutationOffset;
+        patch.mutation.target = mutationTarget;
+        patch.mutation.callWidth = callWidth;
+        for (const auto &continuation : continuations) {
+            patch.continuations.push_back({continuation.name, continuation.offset});
+        }
+        patch.optimization.enabled = optimize;
+        patch.optimization.hookAddress = mutationTarget;
+
+        const auto result = eu4dll::platform::macos::LivePatchRuntime().Install(patch);
+        for (const auto &continuation : continuations) {
+            if (continuation.storage != nullptr) {
+                *continuation.storage = result.ContinuationAddress(continuation.name);
+            }
+        }
+        if (!result) {
+            eu4dll::diagnostics::StartupDiagnostics::Instance().Record(result.diagnostic);
+            std::cerr << "eu4dll_mac [Error] "
+                      << eu4dll::patch::FormatDiagnostic(result.diagnostic) << std::endl;
+            return false;
+        }
+        std::cout << "eu4dll_mac [Success] " << feature
+                  << " match=0x" << std::hex << result.diagnostic.matchAddress
+                  << " mutation=0x" << result.diagnostic.mutationAddress
+                  << std::dec << std::endl;
+        return true;
+    }
+
+    template<typename Function>
+    Function ResolveInputSymbol(const char *feature, const char *symbol) {
+        return reinterpret_cast<Function>(eu4dll::platform::macos::ResolveLiveSymbol(
+            feature, target::kDiagnosticTargetId, symbol));
+    }
+    } // namespace
 
     void inputUtf8ToEscapedStr(const char *utf8_text,          // rdi: SDL text buffer [rbp-0x5C]
                                void *pEventHandler,     // rsi: CPdxEventHandler 对象指针 [rbp-0x70]
@@ -37,44 +107,11 @@ namespace input {
                                uint32_t timestamp,       // rcx: 事件时间戳 [rbp-0x54]
                                void *pTextInputEventMem, // r8 : 供 CTextInputEvent 存放的栈内存 (r12)
                                void *pInputEventMem      // r9 : 供 CInputEvent 存放的栈内存 [rbp-0xE8]
-    ) {
-        isImeComposing = false;
-        std::string escaped = utf8_text;
-        //printf("输入的文本：%s %s\n", utf8_text, escaped.c_str());
-        strConvert::utf8ToEscapedStrReplace(&escaped);
-        for (char c: escaped) {
-            if (c == '\0') continue;
-
-            // a. 调用原游戏的前置检查: pKeyBoard->vtable[0x28](0x303, 0)
-            // 对应反汇编的 1014085ED 处逻辑
-            // a. 正确调用 preCheck (vtable offset: 0x28)
-            // 汇编: rdi = this, esi = 0x303, edx = arg_var_54, ecx = 0
-            typedef void (*pfnPreCheck)(void *pThis, int eventType, uint32_t arg3, int arg4);
-
-            // 关键修复：先获取虚表基址，再取虚函数地址
-            void **keyboardVtable = *reinterpret_cast<void ***>(pKeyBoard);
-            auto preCheck = reinterpret_cast<pfnPreCheck>(keyboardVtable[0x28 / 8]);
-            preCheck(pKeyBoard, 0x303, timestamp, 0);
-
-
-
-            // b. 构造 CTextInputEvent
-            fnCTextInputEvent_initCall(pTextInputEventMem, c);
-            // c. 构造 CInputEvent
-            fnCInputEvent_initCall(pInputEventMem, pTextInputEventMem);
-            // d. 调用 pEventHandler->HandleEvent(CInputEvent*)
-            // 虚函数偏移在 0x20
-            // d. 正确派发事件 dispatch (vtable offset: 0x20)
-            typedef void (*pfnDispatch)(void *pThis, void *eventPtr);
-
-            // 关键修复：获取 EventHandler 对象的虚表
-            void **handlerVtable = *reinterpret_cast<void ***>(pEventHandler);
-            auto dispatch = reinterpret_cast<pfnDispatch>(handlerVtable[0x20 / 8]);
-            dispatch(pEventHandler, pInputEventMem);
-
-            // e. 析构 CInputEvent 释放内存
-            fnCInputEvent_DestructorCall(pInputEventMem);
-        }
+    ) noexcept {
+        const auto commit = macos_input::capture_native_commit(utf8_text);
+        target_input::inject_bytes(commit.escaped,
+                {pEventHandler, pKeyBoard, timestamp, pTextInputEventMem,
+                 pInputEventMem});
     }
 
 
@@ -89,17 +126,32 @@ namespace input {
                 "mov r8, r12\n"             // arg4: CTextInputEvent 的内存地址 (原代码 r12=[rbp-108h])
                 "lea r9, [rbp - 0xE8]\n"    // arg5: CInputEvent 的内存地址
 
-                // 保护栈对齐 (调用 C 函数前要求 rsp 按 16 字节对齐)
-                "push rbp\n"
-                "mov rbp, rsp\n"
-                "and rsp, -16\n"
+                "push rax\n push rcx\n push rdx\n push rsi\n push rdi\n"
+                "push r8\n push r9\n push r10\n push r11\n"
+                "push rbp\n mov rbp, rsp\n and rsp, -16\n sub rsp, 256\n"
+                "movdqu [rsp+0], xmm0\n movdqu [rsp+16], xmm1\n"
+                "movdqu [rsp+32], xmm2\n movdqu [rsp+48], xmm3\n"
+                "movdqu [rsp+64], xmm4\n movdqu [rsp+80], xmm5\n"
+                "movdqu [rsp+96], xmm6\n movdqu [rsp+112], xmm7\n"
+                "movdqu [rsp+128], xmm8\n movdqu [rsp+144], xmm9\n"
+                "movdqu [rsp+160], xmm10\n movdqu [rsp+176], xmm11\n"
+                "movdqu [rsp+192], xmm12\n movdqu [rsp+208], xmm13\n"
+                "movdqu [rsp+224], xmm14\n movdqu [rsp+240], xmm15\n"
 
                 // 调用我们的 C++ 处理逻辑
                 "call [rip + _g_InputUtf8ToEscapedStr_Addr] \n"
 
-                // 恢复栈
-                "mov rsp, rbp\n"
-                "pop rbp\n"
+                "movdqu xmm0, [rsp+0]\n movdqu xmm1, [rsp+16]\n"
+                "movdqu xmm2, [rsp+32]\n movdqu xmm3, [rsp+48]\n"
+                "movdqu xmm4, [rsp+64]\n movdqu xmm5, [rsp+80]\n"
+                "movdqu xmm6, [rsp+96]\n movdqu xmm7, [rsp+112]\n"
+                "movdqu xmm8, [rsp+128]\n movdqu xmm9, [rsp+144]\n"
+                "movdqu xmm10, [rsp+160]\n movdqu xmm11, [rsp+176]\n"
+                "movdqu xmm12, [rsp+192]\n movdqu xmm13, [rsp+208]\n"
+                "movdqu xmm14, [rsp+224]\n movdqu xmm15, [rsp+240]\n"
+                "mov rsp, rbp\n pop rbp\n"
+                "pop r11\n pop r10\n pop r9\n pop r8\n pop rdi\n"
+                "pop rsi\n pop rdx\n pop rcx\n pop rax\n"
 
                 "jmp [rip + _g_HandlePdxEvents_1_RetAddr] \n"
                 ".att_syntax prefix \n"
@@ -111,57 +163,39 @@ namespace input {
  作用：拦截输入法输入完成事件，使其能读取全部输入文本并转换为游戏内能显示的逃逸文本
  */
     void install_CSdlEvents_HandlePdxEvents_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "8A 5D A4 84 DB 0F 89 ? ? ? ? 80 FB DF";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
-            return;
-        }
-        uintptr_t leaAddress = matchAddress;
-        g_HandlePdxEvents_1_RetAddr = leaAddress + 0x325;
-        HookJMP(leaAddress, (uintptr_t) naked_CSdlEvents_HandlePdxEvents_1);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        const auto &site = target::input::kHandlePdxEvents1;
         g_InputUtf8ToEscapedStr_Addr = (void *) inputUtf8ToEscapedStr;
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_HandlePdxEvents_1_RetAddr);
-        OptimizeNakedHook((uintptr_t) naked_CSdlEvents_HandlePdxEvents_1);
-        SET_SUCCESS();
+        if (!InstallInputPatch(
+                "input.handle-pdx-events.commit", site,
+                eu4dll::patch::MutationKind::Jump,
+                reinterpret_cast<uintptr_t>(naked_CSdlEvents_HandlePdxEvents_1),
+                {target::input::kHandlePdxEvents1Original.begin(),
+                 target::input::kHandlePdxEvents1Original.end()},
+                {{"return", site.continuationOffset, &g_HandlePdxEvents_1_RetAddr}},
+                true)) return;
+        installGuard.MarkSuccess();
     }
 
-    bool isEscapedStr(unsigned char c) {
-        if (c == ESCAPE_SEQ_1 || c == ESCAPE_SEQ_2 || c == ESCAPE_SEQ_3 || c == ESCAPE_SEQ_4) {
-            return true;
-        }
-        return false;
-    }
-
-    bool proxy_CTextBuffer_HandleKeyEvent_HandleBackspace_1(void *pTextBuffer) {
-        if (isImeComposing) {
+    void proxy_CTextBuffer_HandleKeyEvent_HandleBackspace_1(void *pTextBuffer) noexcept {
+        if (macos_input::native_composition_active()) {
             isFirstEmpty = true;
-            return true; // 返回 true 表示我们处理了该事件，让游戏忽略退格键逻辑
+            g_BackspaceHandled = true;
+            return;
         } else if (isFirstEmpty) {
             isFirstEmpty = false;
-            return true; //首次空值时屏蔽退格，此时是刚好删完输入法内容
+            g_BackspaceHandled = true;
+            return;
         }
-        auto *stringBase = (std::string *) ((uintptr_t) pTextBuffer + 0x30);
-        const char *str = (*stringBase).c_str();
-        auto *cursorPos = (CCursorPosition *) ((uintptr_t) pTextBuffer + 0x4C);
-        int64_t realIndex = fnCTextBuffer_GetCursorPositionInStringCall(pTextBuffer);
-        int offset = 0;
-        if (realIndex == 0) return false;
-        if (isEscapedStr(str[realIndex - 1])) {
-            offset += 2;
-        } else if (realIndex >= 2 && isEscapedStr(str[realIndex - 2])) {
-            offset += 1;
-        } else if (!(realIndex >= 3 && isEscapedStr(str[realIndex - 3]))) {
-            return false;
+        const auto buffer = target_input::view(pTextBuffer);
+        const auto decision = portable_input::decide_backspace(
+                buffer.escaped_text, buffer.focus);
+        if (!decision.handled || decision.byte_count == 1) {
+            g_BackspaceHandled = false;
+            return;
         }
-        cursorPos->Col += offset;
-        fnCTextBuffer_EnterBackspaceCall(pTextBuffer);
-        fnCTextBuffer_EnterBackspaceCall(pTextBuffer);
-        fnCTextBuffer_EnterBackspaceCall(pTextBuffer);
-        return true;
+        target_input::backspace_bytes(pTextBuffer, decision.byte_count);
+        g_BackspaceHandled = true;
     }
 
     extern "C" void *g_HandleKeyEvent_HandleBackspace_1_Addr = (void *) proxy_CTextBuffer_HandleKeyEvent_HandleBackspace_1;
@@ -171,19 +205,36 @@ namespace input {
         __asm__ volatile (
                 ".intel_syntax noprefix \n"
 
-                "push rbp\n"
-                "mov rbp, rsp\n"
-                "and rsp, -16\n"
+                "push rax\n push rcx\n push rdx\n push rsi\n push rdi\n"
+                "push r8\n push r9\n push r10\n push r11\n"
+                "push rbp\n mov rbp, rsp\n and rsp, -16\n sub rsp, 256\n"
+                "movdqu [rsp+0], xmm0\n movdqu [rsp+16], xmm1\n"
+                "movdqu [rsp+32], xmm2\n movdqu [rsp+48], xmm3\n"
+                "movdqu [rsp+64], xmm4\n movdqu [rsp+80], xmm5\n"
+                "movdqu [rsp+96], xmm6\n movdqu [rsp+112], xmm7\n"
+                "movdqu [rsp+128], xmm8\n movdqu [rsp+144], xmm9\n"
+                "movdqu [rsp+160], xmm10\n movdqu [rsp+176], xmm11\n"
+                "movdqu [rsp+192], xmm12\n movdqu [rsp+208], xmm13\n"
+                "movdqu [rsp+224], xmm14\n movdqu [rsp+240], xmm15\n"
 
                 // r15 存放的是 CTextBuffer 的 this 指针，作为参数传给我们的 C++ 函数
                 "mov rdi, r15\n"
                 "call [rip + _g_HandleKeyEvent_HandleBackspace_1_Addr]\n"
 
-                "mov rsp, rbp\n"
-                "pop rbp\n"
+                "movdqu xmm0, [rsp+0]\n movdqu xmm1, [rsp+16]\n"
+                "movdqu xmm2, [rsp+32]\n movdqu xmm3, [rsp+48]\n"
+                "movdqu xmm4, [rsp+64]\n movdqu xmm5, [rsp+80]\n"
+                "movdqu xmm6, [rsp+96]\n movdqu xmm7, [rsp+112]\n"
+                "movdqu xmm8, [rsp+128]\n movdqu xmm9, [rsp+144]\n"
+                "movdqu xmm10, [rsp+160]\n movdqu xmm11, [rsp+176]\n"
+                "movdqu xmm12, [rsp+192]\n movdqu xmm13, [rsp+208]\n"
+                "movdqu xmm14, [rsp+224]\n movdqu xmm15, [rsp+240]\n"
+                "mov rsp, rbp\n pop rbp\n"
+                "pop r11\n pop r10\n pop r9\n pop r8\n pop rdi\n"
+                "pop rsi\n pop rdx\n pop rcx\n pop rax\n"
 
                 // 检查 C++ 函数的返回值 (存放在 AL 寄存器)
-                "test al, al\n"
+                "cmp byte ptr [rip + _g_BackspaceHandled], 0\n"
                 "jnz 1f\n" // 如果返回 true (拦截)，跳到下面标签 1
 
                 // ===== 分支 A：不拦截，执行原游戏正常退格逻辑 =====
@@ -206,40 +257,60 @@ namespace input {
  作用：处理退格键删除逃逸文本时的逻辑，使其能正确删除
  */
     void install_CTextBuffer_HandleKeyEvent_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "49 8B 07 4C 89 FF 84 DB 74 6B FF 90 40 01 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
-            return;
-        }
-        uintptr_t leaAddress = matchAddress;
-        g_HandleKeyEvent_1_RetAddr = leaAddress + 6;
-        g_HandleKeyEvent_1_BypassAddr = leaAddress + 0x10;
-        HookJMP(leaAddress, (uintptr_t) naked_CTextBuffer_HandleKeyEvent_1);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_HandleKeyEvent_1_RetAddr, g_HandleKeyEvent_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CTextBuffer_HandleKeyEvent_1);
-        SET_SUCCESS();
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        const auto &site = target::input::kHandleKeyEvent1;
+        if (!InstallInputPatch(
+                "input.handle-key-event.backspace", site,
+                eu4dll::patch::MutationKind::Jump,
+                reinterpret_cast<uintptr_t>(naked_CTextBuffer_HandleKeyEvent_1),
+                {target::input::kHandleKeyEvent1Original.begin(),
+                 target::input::kHandleKeyEvent1Original.end()},
+                {{"return", site.continuationOffset, &g_HandleKeyEvent_1_RetAddr},
+                 {"bypass", site.bypassOffset, &g_HandleKeyEvent_1_BypassAddr}},
+                true)) return;
+        installGuard.MarkSuccess();
     }
 
 
     __attribute__((naked)) void naked_CSdlEvents_HandlePdxEvents_2() {
         __asm__ volatile (
                 ".intel_syntax noprefix \n"
-                "cmp eax, 0x302 \n"
+                "cmp eax, %c[editing] \n"
                 "jz 1f \n"
                 "jmp 2f \n"
                 "1: \n"
-                "cmp byte ptr[rbp-0x5C], 0 \n"
-                "setnz cl \n"
-                "mov [rip+_isImeComposing], cl \n"
+                "push rax\n push rcx\n push rdx\n push rsi\n push rdi\n"
+                "push r8\n push r9\n push r10\n push r11\n"
+                "lea rdi, [rbp-0x5C]\n"
+                "push rbp\n mov rbp, rsp\n and rsp, -16\n"
+                "sub rsp, 256\n"
+                "movdqu [rsp+0], xmm0\n movdqu [rsp+16], xmm1\n"
+                "movdqu [rsp+32], xmm2\n movdqu [rsp+48], xmm3\n"
+                "movdqu [rsp+64], xmm4\n movdqu [rsp+80], xmm5\n"
+                "movdqu [rsp+96], xmm6\n movdqu [rsp+112], xmm7\n"
+                "movdqu [rsp+128], xmm8\n movdqu [rsp+144], xmm9\n"
+                "movdqu [rsp+160], xmm10\n movdqu [rsp+176], xmm11\n"
+                "movdqu [rsp+192], xmm12\n movdqu [rsp+208], xmm13\n"
+                "movdqu [rsp+224], xmm14\n movdqu [rsp+240], xmm15\n"
+                "call _eu4dll_capture_native_editing\n"
+                "movdqu xmm0, [rsp+0]\n movdqu xmm1, [rsp+16]\n"
+                "movdqu xmm2, [rsp+32]\n movdqu xmm3, [rsp+48]\n"
+                "movdqu xmm4, [rsp+64]\n movdqu xmm5, [rsp+80]\n"
+                "movdqu xmm6, [rsp+96]\n movdqu xmm7, [rsp+112]\n"
+                "movdqu xmm8, [rsp+128]\n movdqu xmm9, [rsp+144]\n"
+                "movdqu xmm10, [rsp+160]\n movdqu xmm11, [rsp+176]\n"
+                "movdqu xmm12, [rsp+192]\n movdqu xmm13, [rsp+208]\n"
+                "movdqu xmm14, [rsp+224]\n movdqu xmm15, [rsp+240]\n"
+                "mov rsp, rbp\n pop rbp\n"
+                "pop r11\n pop r10\n pop r9\n pop r8\n pop rdi\n"
+                "pop rsi\n pop rdx\n pop rcx\n pop rax\n"
                 "2: \n"
-                "cmp eax, 0x301 \n"
+                "cmp eax, %c[keydown] \n"
                 "jmp [rip + _g_HandlePdxEvents_2_RetAddr] \n"
                 ".att_syntax prefix \n"
+                :
+                : [editing] "i"(target::input::kTextEditingEvent),
+                  [keydown] "i"(target::input::kKeyDownEvent)
                 );
     }
 
@@ -248,34 +319,25 @@ namespace input {
  作用：检查输入法是否正在输入，用于拦截输入时的退格键
  */
     void install_CSdlEvents_HandlePdxEvents_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "3D 01 03 00 00 0F 84 ? ? ? ? 3D 03 03 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
-            return;
-        }
-        uintptr_t leaAddress = matchAddress;
-        g_HandlePdxEvents_2_RetAddr = leaAddress + 5;
-        HookJMP(leaAddress, (uintptr_t) naked_CSdlEvents_HandlePdxEvents_2);
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_HandlePdxEvents_2_RetAddr);
-        OptimizeNakedHook((uintptr_t) naked_CSdlEvents_HandlePdxEvents_2);
-        SET_SUCCESS();
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        const auto &site = target::input::kHandlePdxEvents2;
+        if (!InstallInputPatch(
+                "input.handle-pdx-events.editing", site,
+                eu4dll::patch::MutationKind::Jump,
+                reinterpret_cast<uintptr_t>(naked_CSdlEvents_HandlePdxEvents_2),
+                {target::input::kHandlePdxEvents2Original.begin(),
+                 target::input::kHandlePdxEvents2Original.end()},
+                {{"return", site.continuationOffset, &g_HandlePdxEvents_2_RetAddr}},
+                true)) return;
+        installGuard.MarkSuccess();
     }
 
     void proxy_CTextBuffer_HandleKeyEvent_MoveLeft(void *pTextBuffer) {
-        int64_t realIndex = fnCTextBuffer_GetCursorPositionInStringCall(pTextBuffer);
-        if (realIndex >= 3) {
-            auto *stringBase = (std::string *) ((uintptr_t) pTextBuffer + 0x30);
-            const char *str = (*stringBase).c_str();
-            if (isEscapedStr(str[realIndex - 3])) {
-                fnCTextBuffer_MoveLeftCall(pTextBuffer);
-                fnCTextBuffer_MoveLeftCall(pTextBuffer);
-            }
-        }
-        fnCTextBuffer_MoveLeftCall(pTextBuffer);
+        const auto buffer = target_input::view(pTextBuffer);
+        const auto decision = portable_input::decide_cursor(
+                buffer.escaped_text, buffer.focus, -1);
+        target_input::move_left_bytes(pTextBuffer,
+                decision.handled ? decision.byte_count : 1);
     }
 
 /**
@@ -283,34 +345,24 @@ namespace input {
  作用：按下向左方向键时的光标处理
  */
     void install_CTextBuffer_HandleKeyEvent_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "49 8B 07 4C 89 FF FF 90 D8 00 00 00 E9";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
-            return;
-        }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 6;
-        ReplaceCall(leaAddress, (uintptr_t) proxy_CTextBuffer_HandleKeyEvent_MoveLeft);
-        printf("eu4dll_mac [Success] %s ReplaceCall 匹配地址:0x%lx 写入地址:0x%lx\n", __func__, matchAddress,
-               leaAddress);
-        SET_SUCCESS();
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        const auto &site = target::input::kMoveLeft;
+        if (!InstallInputPatch(
+                "input.handle-key-event.move-left", site,
+                eu4dll::patch::MutationKind::Call,
+                reinterpret_cast<uintptr_t>(proxy_CTextBuffer_HandleKeyEvent_MoveLeft),
+                {target::input::kMoveLeftOriginal.begin(),
+                 target::input::kMoveLeftOriginal.end()}, {}, false,
+                eu4dll::patch::CallWidth::SixBytes)) return;
+        installGuard.MarkSuccess();
     }
 
     void proxy_CTextBuffer_HandleKeyEvent_MoveRight(void *pTextBuffer) {
-        auto *stringBase = (std::string *) ((uintptr_t) pTextBuffer + 0x30);
-        auto len = stringBase->length();
-        int64_t realIndex = fnCTextBuffer_GetCursorPositionInStringCall(pTextBuffer);
-        if ((len - realIndex) >= 3) {
-            const char *str = (*stringBase).c_str();
-            if (isEscapedStr(str[realIndex])) {
-                fnCTextBuffer_MoveRightCall(pTextBuffer);
-                fnCTextBuffer_MoveRightCall(pTextBuffer);
-            }
-        }
-        fnCTextBuffer_MoveRightCall(pTextBuffer);
+        const auto buffer = target_input::view(pTextBuffer);
+        const auto decision = portable_input::decide_cursor(
+                buffer.escaped_text, buffer.focus, 1);
+        target_input::move_right_bytes(pTextBuffer,
+                decision.handled ? decision.byte_count : 1);
     }
 
 /**
@@ -318,33 +370,51 @@ namespace input {
  作用：按下向右方向键时的光标处理
  */
     void install_CTextBuffer_HandleKeyEvent_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "49 8B 07 4C 89 FF FF 90 E8 00 00 00 E9";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
-            return;
-        }
-        uintptr_t leaAddress = matchAddress;
-        leaAddress = leaAddress + 6;
-        ReplaceCall(leaAddress, (uintptr_t) proxy_CTextBuffer_HandleKeyEvent_MoveRight);
-        printf("eu4dll_mac [Success] %s ReplaceCall 匹配地址:0x%lx 写入地址:0x%lx\n", __func__, matchAddress,
-               leaAddress);
-        SET_SUCCESS();
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        const auto &site = target::input::kMoveRight;
+        if (!InstallInputPatch(
+                "input.handle-key-event.move-right", site,
+                eu4dll::patch::MutationKind::Call,
+                reinterpret_cast<uintptr_t>(proxy_CTextBuffer_HandleKeyEvent_MoveRight),
+                {target::input::kMoveRightOriginal.begin(),
+                 target::input::kMoveRightOriginal.end()}, {}, false,
+                eu4dll::patch::CallWidth::SixBytes)) return;
+        installGuard.MarkSuccess();
     }
 
 
     void install() {
-        fnCTextInputEvent_initCall = (fnCTextInputEvent_init_t) findFn("_ZN15CTextInputEventC1Ec");
-        fnCInputEvent_initCall = (fnCInputEvent_init_t) findFn("_ZN11CInputEventC1ERK15CTextInputEvent");
-        fnCInputEvent_DestructorCall = (fnInstanceAction_t) findFn("_ZN11CInputEventD1Ev");
-        fnCTextBuffer_EnterBackspaceCall = (fnInstanceAction_t) dlsym(RTLD_DEFAULT,
-                                                                      "_ZN11CTextBuffer14EnterBackspaceEv");
-        fnCTextBuffer_GetCursorPositionInStringCall = (fnCTextBuffer_GetCursorPositionInString_t) dlsym(RTLD_DEFAULT,
-                                                                                                        "_ZN11CTextBuffer25GetCursorPositionInStringEv");
-        fnCTextBuffer_MoveLeftCall = (fnInstanceAction_t) findFn("_ZN11CTextBuffer8MoveLeftEv");
-        fnCTextBuffer_MoveRightCall = (fnInstanceAction_t) findFn("_ZN11CTextBuffer9MoveRightEv");
+        fnCTextInputEvent_initCall = ResolveInputSymbol<fnCTextInputEvent_init_t>(
+            "input.symbol.text-input-event-constructor",
+            target::symbols::kTextInputEventConstructor);
+        fnCInputEvent_initCall = ResolveInputSymbol<fnCInputEvent_init_t>(
+            "input.symbol.input-event-constructor",
+            target::symbols::kInputEventConstructor);
+        fnCInputEvent_DestructorCall = ResolveInputSymbol<fnInstanceAction_t>(
+            "input.symbol.input-event-destructor",
+            target::symbols::kInputEventDestructor);
+        fnCTextBuffer_EnterBackspaceCall = ResolveInputSymbol<fnInstanceAction_t>(
+            "input.symbol.text-buffer-backspace",
+            target::symbols::kTextBufferEnterBackspace);
+        fnCTextBuffer_GetCursorPositionInStringCall =
+            ResolveInputSymbol<fnCTextBuffer_GetCursorPositionInString_t>(
+                "input.symbol.text-buffer-cursor-position",
+                target::symbols::kTextBufferCursorPosition);
+        fnCTextBuffer_MoveLeftCall = ResolveInputSymbol<fnInstanceAction_t>(
+            "input.symbol.text-buffer-move-left", target::symbols::kTextBufferMoveLeft);
+        fnCTextBuffer_MoveRightCall = ResolveInputSymbol<fnInstanceAction_t>(
+            "input.symbol.text-buffer-move-right", target::symbols::kTextBufferMoveRight);
+        if (fnCTextInputEvent_initCall == nullptr || fnCInputEvent_initCall == nullptr ||
+            fnCInputEvent_DestructorCall == nullptr ||
+            fnCTextBuffer_EnterBackspaceCall == nullptr ||
+            fnCTextBuffer_GetCursorPositionInStringCall == nullptr ||
+            fnCTextBuffer_MoveLeftCall == nullptr || fnCTextBuffer_MoveRightCall == nullptr) {
+            return;
+        }
+        target_input::bind({fnCTextInputEvent_initCall, fnCInputEvent_initCall,
+                fnCInputEvent_DestructorCall, fnCTextBuffer_EnterBackspaceCall,
+                fnCTextBuffer_GetCursorPositionInStringCall,
+                fnCTextBuffer_MoveLeftCall, fnCTextBuffer_MoveRightCall});
 
         //拦截输入完成事件，使其支持UTF8文本输入
         install_CSdlEvents_HandlePdxEvents_1();

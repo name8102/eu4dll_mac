@@ -1,0 +1,33 @@
+{
+  "id": "diagnostics-verification",
+  "name": "diagnostics-verification",
+  "title": "Consolidate diagnostics and complete verification",
+  "description": "Consolidate diagnostics, remove obsolete state and paths, and complete project-wide verification.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "startup diagnostics, global state cleanup, dead code removal, clean build, tests, resources, final audit",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "library.cpp",
+    "src/global.h",
+    "src/",
+    "tests/",
+    "CMakeLists.txt",
+    ".trellis/spec/project/"
+  ],
+  "notes": "Final child task; depends on all previous children and reconciles the parent acceptance criteria.",
+  "meta": {}
+}

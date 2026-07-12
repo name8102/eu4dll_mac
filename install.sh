@@ -1,352 +1,322 @@
 #!/bin/bash
 
-# 获取脚本所在的当前目录
-cd "$(dirname "$0")"
-SCRIPT_DIR="$(pwd)"
+set -u
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DYLIB_NAME="libeu4dll_mac.dylib"
-DYLIB_SOURCE="$SCRIPT_DIR/$DYLIB_NAME"
-INSERT_TOOL="$SCRIPT_DIR/insert_dylib"
+MANIFEST_NAME="eu4dll-patch-manifest.bin"
+STATE_NAME="eu4dll-install-state"
 DICT_NAME="chinese_dict"
-DICT_SOURCE="$SCRIPT_DIR/$DICT_NAME"
+DYLIB_SOURCE=${EU4DLL_DYLIB_SOURCE:-"$SCRIPT_DIR/$DYLIB_NAME"}
+INSERT_TOOL=${EU4DLL_INSERT_TOOL:-"$SCRIPT_DIR/insert_dylib"}
+MANIFEST_TOOL=${EU4DLL_MANIFEST_TOOL:-"$SCRIPT_DIR/eu4dll_manifest_tool"}
+DICT_SOURCE=${EU4DLL_DICT_SOURCE:-"$SCRIPT_DIR/$DICT_NAME"}
+PLISTBUDDY=${EU4DLL_PLISTBUDDY:-/usr/libexec/PlistBuddy}
+CODESIGN=${EU4DLL_CODESIGN:-codesign}
+XATTR=${EU4DLL_XATTR:-xattr}
+LSREGISTER=${EU4DLL_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}
+SUDO=${EU4DLL_SUDO:-sudo}
+CURRENT_PHASE="startup"
+TX_DIR=""
+MUTATION_STARTED=0
+ROLLBACK_RUNNING=0
 
-# ==========================================
-# 1. 获取系统语言并设置多语言文本
-# ==========================================
-SYS_LANG=$(defaults read -g AppleLanguages | grep -E -o '^[[:space:]]*"[^"]+"' | head -1 | tr -d '"[:space:]')
+msg() {
+    key=$1
+    case "${EU4DLL_LANG:-${LANG:-en}}" in
+        zh*) case "$key" in
+            prompt) printf '%s' "请将 eu4.app 拖入此终端窗口，然后按回车键确认: ";;
+            bad_app) printf '%s\n' "错误：路径无效或不是可用的 eu4.app。";;
+            preflight) printf '%s\n' "正在一次性检查游戏兼容性并生成补丁清单（启动时不会重复扫描）...";;
+            preflight_failed) printf '%s\n' "错误：兼容性预检失败，游戏未被修改。";;
+            installed) printf '%s\n' "EU4 MAC 双字节补丁安装完成。";;
+            uninstalled) printf '%s\n' "补丁已卸载，游戏可执行文件已恢复。";;
+            choose) printf '%s' "检测到已安装补丁。[1] 更新/修复 [2] 卸载: ";;
+            sudo) printf '%s\n' "修改此 App 需要管理员权限。";;
+            *) printf '%s\n' "$key";;
+        esac ;;
+        ja*) case "$key" in
+            prompt) printf '%s' "eu4.app をこのターミナルにドラッグし、Enter を押してください: ";;
+            bad_app) printf '%s\n' "エラー: 有効な eu4.app ではありません。";;
+            preflight) printf '%s\n' "互換性を一度確認し、パッチマニフェストを生成しています...";;
+            preflight_failed) printf '%s\n' "エラー: 互換性チェックに失敗しました。ゲームは変更されていません。";;
+            installed) printf '%s\n' "EU4 MAC 2バイトパッチのインストールが完了しました。";;
+            uninstalled) printf '%s\n' "パッチを削除し、実行ファイルを復元しました。";;
+            choose) printf '%s' "パッチを検出しました。[1] 更新/修復 [2] 削除: ";;
+            sudo) printf '%s\n' "この App の変更には管理者権限が必要です。";;
+            *) printf '%s\n' "$key";;
+        esac ;;
+        ko*) case "$key" in
+            prompt) printf '%s' "eu4.app를 이 터미널로 끌어온 뒤 Enter를 누르십시오: ";;
+            bad_app) printf '%s\n' "오류: 유효한 eu4.app가 아닙니다.";;
+            preflight) printf '%s\n' "호환성을 한 번 검사하고 패치 매니페스트를 생성하는 중...";;
+            preflight_failed) printf '%s\n' "오류: 호환성 검사 실패. 게임은 변경되지 않았습니다.";;
+            installed) printf '%s\n' "EU4 MAC 더블바이트 패치 설치 완료.";;
+            uninstalled) printf '%s\n' "패치를 제거하고 실행 파일을 복원했습니다.";;
+            choose) printf '%s' "설치된 패치 감지. [1] 업데이트/복구 [2] 제거: ";;
+            sudo) printf '%s\n' "이 App을 변경하려면 관리자 권한이 필요합니다.";;
+            *) printf '%s\n' "$key";;
+        esac ;;
+        *) case "$key" in
+            prompt) printf '%s' "Drag eu4.app into this terminal and press Enter: ";;
+            bad_app) printf '%s\n' "Error: the path is not a usable eu4.app.";;
+            preflight) printf '%s\n' "Checking compatibility once and generating the patch manifest...";;
+            preflight_failed) printf '%s\n' "Error: compatibility preflight failed; the game was not modified.";;
+            installed) printf '%s\n' "EU4 MAC Double-Byte Patch installation complete.";;
+            uninstalled) printf '%s\n' "Patch uninstalled and original executable restored.";;
+            choose) printf '%s' "Patch detected. [1] Update/repair [2] Uninstall: ";;
+            sudo) printf '%s\n' "Administrator privileges are required to modify this App.";;
+            *) printf '%s\n' "$key";;
+        esac ;;
+    esac
+}
 
-case "$SYS_LANG" in
-    zh*)
-        MSG_PROMPT="请将 eu4.app 拖入此终端窗口，然后按回车键确认: "
-        MSG_ERR_NOT_APP="❌ 错误：无效的路径或文件不存在！"
-        MSG_ERR_NOT_EU4="❌ 错误：验证失败！拖入的不是 eu4.app，安装脚本已退出。"
-        MSG_ERR_NO_DYLIB="❌ 错误：在脚本同目录下找不到 $DYLIB_NAME ！"
-        MSG_ERR_NO_TOOL="❌ 错误：在脚本同目录下找不到注入工具 insert_dylib ！"
-        MSG_SUDO_REQ="⚠️  修改该 App 目录需要管理员权限，请输入您的 Mac 登录密码（输入时屏幕不显示字符，输完回车即可）:"
-        MSG_EXIST="⚠️  检测到可执行文件已被注入过补丁。请选择操作："
-        MSG_OPT_1="   [1] 替换/更新补丁"
-        MSG_OPT_2="   [2] 卸载补丁"
-        MSG_OPT_INPUT="请输入 1 或 2，然后回车: "
-        MSG_OPT_ERR="❌ 输入无效，脚本退出。"
-        MSG_ASK_FS="❓ 是否需要解决全屏窗口模式下菜单栏遮挡问题？(输入 y 确认，其他键跳过): "
-        MSG_UNINSTALLING="正在清理文件并恢复可执行文件..."
-        MSG_UNINSTALL_DONE="✅ 卸载完成！App 已恢复原状。"
-        MSG_BACKUP="正在备份可执行文件..."
-        MSG_COPYING="正在复制 $DYLIB_NAME 到 Frameworks 目录..."
-        MSG_COPY_DICT="正在复制中文拼音字典到 Resources 目录..."
-        MSG_WARN_NO_DICT="⚠️ 当前目录下找不到拼音字典目录 ($DICT_NAME)，缺失字典将导致拼音和首字母查找功能无法使用。"
-        MSG_INJECTING="正在向二进制可执行文件注入补丁..."
-        MSG_ERR_INJECT_FAIL="❌ 错误：二进制注入失败！详情如下："
-        MSG_ERR_NO_BACKUP_DIRTY="❌ 致命错误：检测到游戏已被注入，但找不到原版备份文件！为防止损坏，请在 Steam 中验证游戏完整性后再试。"
-        MSG_WARN_NO_BACKUP="⚠️ 警告：找不到备份文件，无法恢复原版可执行文件。建议在 Steam 验证完整性。"
-        MSG_PLIST="正在配置 Info.plist..."
-        MSG_SIGN="正在修复应用签名以防崩溃..."
-        MSG_CACHE="正在刷新 LaunchServices 缓存..."
-        MSG_SUCCESS="🎉 EU4 MAC双字节补丁安装完成！现在可以开始游戏啦！后续如需卸载补丁可再次运行本安装脚本。本补丁问题反馈地址：https://github.com/PoXiao-zero/eu4dll_mac"
-        DICT_BEHAVIOR="auto"
-        ;;
-    ja*)
-        MSG_PROMPT="eu4.app をこのターミナルウィンドウにドラッグし、Enterキーを押して確認してください: "
-        MSG_ERR_NOT_APP="❌ エラー：無効なパス、またはファイルが存在しません！"
-        MSG_ERR_NOT_EU4="❌ エラー：検証に失敗しました！ドラッグされたのは eu4.app ではありません。スクリプトを終了します。"
-        MSG_ERR_NO_DYLIB="❌ エラー：スクリプトと同じディレクトリに $DYLIB_NAME が見つかりません！"
-        MSG_ERR_NO_TOOL="❌ エラー：スクリプトと同じディレクトリにツール insert_dylib が見つかりません！"
-        MSG_SUDO_REQ="⚠️  このAppディレクトリを変更するには管理者権限が必要です。Macのログインパスワードを入力してください（入力中の文字は画面に表示されません）:"
-        MSG_EXIST="⚠️  実行ファイルには既にパッチがインジェクトされています。操作を選択してください："
-        MSG_OPT_1="   [1] パッチの置換/更新"
-        MSG_OPT_2="   [2] パッチのアンインストール"
-        MSG_OPT_INPUT="1 または 2 を入力して、Enterキーを押してください: "
-        MSG_OPT_ERR="❌ 無効な入力です。スクリプトを終了します。"
-        MSG_ASK_FS="❓ ボーダレスフルスクリーン時のメニューバーの重なり問題を修正しますか？ (y を入力して確認、その他のキーでスキップ): "
-        MSG_UNINSTALLING="ファイルをクリーンアップし、実行ファイルを復元しています..."
-        MSG_UNINSTALL_DONE="✅ アンインストールが完了しました！Appは元の状態に復元されました。"
-        MSG_BACKUP="実行ファイルをバックアップしています..."
-        MSG_COPYING="$DYLIB_NAME を Frameworks ディレクトリにコピーしています..."
-        MSG_INJECTING="実行ファイルにパッチをインジェクトしています..."
-        MSG_ERR_INJECT_FAIL="❌ エラー：バイナリインジェクトに失敗しました！詳細："
-        MSG_ERR_NO_BACKUP_DIRTY="❌ 致命的なエラー：ゲームは既にインジェクトされていますが、元のバックアップファイルが見つかりません！破損を防ぐため、Steamでゲームファイルの整合性を確認してから再試行してください。"
-        MSG_WARN_NO_BACKUP="⚠️ 警告：バックアップファイルが見つからないため、元の実行ファイルを復元できません。Steamで整合性を確認することをお勧めします。"
-        MSG_PLIST="Info.plist を構成しています..."
-        MSG_SIGN="クラッシュ防止のため、アプリの署名を修復しています..."
-        MSG_CACHE="LaunchServices キャッシュを更新しています..."
-        MSG_SUCCESS="🎉 EU4 MAC 2バイトパッチのインストールが完了しました！これでゲームを開始できます！後でパッチをアンインストールする必要がある場合は、このインストールスクリプトを再度実行してください。本パッチのフィードバック先：https://github.com/PoXiao-zero/eu4dll_mac"
-        DICT_BEHAVIOR="skip"
-        ;;
-    ko*)
-        MSG_PROMPT="eu4.app를 이 터미널 창으로 드래그하고 Enter를 눌러 확인하십시오: "
-        MSG_ERR_NOT_APP="❌ 오류: 잘못된 경로이거나 파일이 존재하지 않습니다!"
-        MSG_ERR_NOT_EU4="❌ 오류: 확인 실패! 드래그한 항목이 eu4.app가 아닙니다. 스크립트가 종료되었습니다."
-        MSG_ERR_NO_DYLIB="❌ 오류: 스크립트와 같은 디렉토리에서 $DYLIB_NAME 을(를) 찾을 수 없습니다!"
-        MSG_ERR_NO_TOOL="❌ 오류: 스크립트와 같은 디렉토리에서 insert_dylib 도구를 찾을 수 없습니다!"
-        MSG_SUDO_REQ="⚠️  이 App 디렉토리를 수정하려면 관리자 권한이 필요합니다. Mac 로그인 암호를 입력하십시오 (입력 시 화면에 문자가 표시되지 않습니다):"
-        MSG_EXIST="⚠️  실행 파일에 이미 패치가 주입되어 있습니다. 작업을 선택하십시오:"
-        MSG_OPT_1="   [1] 패치 교체/업데이트"
-        MSG_OPT_2="   [2] 패치 제거"
-        MSG_OPT_INPUT="1 또는 2를 입력하고 Enter를 누르십시오: "
-        MSG_OPT_ERR="❌ 잘못된 입력입니다. 스크립트를 종료합니다."
-        MSG_ASK_FS="❓ 테두리 없는 전체 화면 모드에서 메뉴 표시줄 겹침 문제를 해결하시겠습니까? (확인하려면 y 입력, 다른 키는 건너뛰기): "
-        MSG_UNINSTALLING="파일을 정리하고 실행 파일을 복원하는 중..."
-        MSG_UNINSTALL_DONE="✅ 제거 완료! App이 원래 상태로 복구되었습니다."
-        MSG_BACKUP="실행 파일을 백업하는 중..."
-        MSG_COPYING="$DYLIB_NAME 을(를) Frameworks 디렉토리로 복사하는 중..."
-        MSG_INJECTING="실행 파일에 패치를 주입하는 중..."
-        MSG_ERR_INJECT_FAIL="❌ 오류: 바이너리 주입 실패! 상세:"
-        MSG_ERR_NO_BACKUP_DIRTY="❌ 치명적인 오류: 게임이 이미 주입된 것으로 감지되었으나, 원본 백업 파일을 찾을 수 없습니다! 손상을 방지하려면 Steam에서 게임 무결성을 확인한 후 다시 시도하십시오."
-        MSG_WARN_NO_BACKUP="⚠️ 경고: 백업 파일을 찾을 수 없어 원본 실행 파일을 복원할 수 없습니다. Steam에서 무결성을 확인하는 것이 좋습니다."
-        MSG_PLIST="Info.plist 구성 중..."
-        MSG_SIGN="충돌 방지를 위해 앱 서명을 복구하는 중..."
-        MSG_CACHE="LaunchServices 캐시를 새로 고치는 중..."
-        MSG_SUCCESS="🎉 EU4 MAC 더블 바이트 패치 설치가 완료되었습니다! 이제 게임을 시작할 수 있습니다! 나중에 패치를 제거해야 할 경우 이 설치 스크립트를 다시 실행하시면 됩니다. 패치 관련 피드백 주소: https://github.com/PoXiao-zero/eu4dll_mac"
-        DICT_BEHAVIOR="skip"
-        ;;
-    *)
-        MSG_PROMPT="Please drag eu4.app into this terminal window and press Enter to confirm: "
-        MSG_ERR_NOT_APP="❌ Error: Invalid path or file does not exist!"
-        MSG_ERR_NOT_EU4="❌ Error: Verification failed! The dragged item is not eu4.app. The script has exited."
-        MSG_ERR_NO_DYLIB="❌ Error: $DYLIB_NAME not found in the same directory as the script!"
-        MSG_ERR_NO_TOOL="❌ Error: Tool insert_dylib not found in the same directory as the script!"
-        MSG_SUDO_REQ="⚠️  Modifying this App directory requires administrator privileges. Please enter your Mac login password (characters will not be displayed on screen): "
-        MSG_EXIST="⚠️  Detected that the executable is already injected with the patch. Please select an action: "
-        MSG_OPT_1="   [1] Replace/Update patch"
-        MSG_OPT_2="   [2] Uninstall patch"
-        MSG_OPT_INPUT="Please enter 1 or 2, then press Enter: "
-        MSG_OPT_ERR="❌ Invalid input, script exited."
-        MSG_ASK_FS="❓ Do you want to fix the menu bar overlapping issue in borderless fullscreen mode? (Enter y to confirm, other keys to skip): "
-        MSG_UNINSTALLING="Cleaning up files and restoring the executable..."
-        MSG_UNINSTALL_DONE="✅ Uninstallation complete! The App has been restored to its original state."
-        MSG_BACKUP="Backing up the executable..."
-        MSG_COPYING="Copying $DYLIB_NAME to the Frameworks directory..."
-        MSG_ASK_DICT="❓ Do you want to install the Chinese Pinyin dictionary? (Enter y to confirm, other keys to skip): "
-        MSG_COPY_DICT="Copying Chinese Pinyin dictionary to Resources directory..."
-        MSG_WARN_NO_DICT="⚠️ Chinese Pinyin dictionary ($DICT_NAME) not found, skipping."
-        MSG_INJECTING="Injecting patch into the binary executable..."
-        MSG_ERR_INJECT_FAIL="❌ Error: Binary injection failed! Details:"
-        MSG_ERR_NO_BACKUP_DIRTY="❌ Fatal Error: The game is already injected, but the original backup file is missing! To prevent damage, please verify game integrity in Steam and try again."
-        MSG_WARN_NO_BACKUP="⚠️ Warning: Backup file not found, skipping executable restoration. It is recommended to verify game integrity in Steam."
-        MSG_PLIST="Configuring Info.plist..."
-        MSG_SIGN="Fixing app signature to prevent crashes..."
-        MSG_CACHE="Refreshing LaunchServices cache..."
-        MSG_SUCCESS="🎉 EU4 MAC Double-Byte Patch installation complete! You can now start the game! If you need to uninstall the patch later, you can run this installation script again. Feedback/Issues: https://github.com/PoXiao-zero/eu4dll_mac"
-        DICT_BEHAVIOR="ask"
-        ;;
-esac
+fail() { printf 'install.sh: phase=%s: %s\n' "$CURRENT_PHASE" "$*" >&2; return 1; }
 
-# ==========================================
-# 2. 检查依赖与路径验证
-# ==========================================
+discover_app() {
+    if [ -n "${EU4DLL_APP_PATH:-}" ]; then APP_PATH=$EU4DLL_APP_PATH
+    else msg prompt; IFS= read -r APP_PATH || return 1; fi
+    APP_PATH=${APP_PATH#\'}; APP_PATH=${APP_PATH%\'}
+    APP_PATH=${APP_PATH#\"}; APP_PATH=${APP_PATH%\"}
+    APP_PATH=${APP_PATH//\\ / }
+    CONTENTS_DIR="$APP_PATH/Contents"
+    EXEC_PATH="$CONTENTS_DIR/MacOS/eu4"
+    FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
+    RESOURCES_DIR="$CONTENTS_DIR/Resources"
+    PLIST_PATH="$CONTENTS_DIR/Info.plist"
+    BACKUP_PATH="${EXEC_PATH}_bak"
+    DYLIB_DEST="$FRAMEWORKS_DIR/$DYLIB_NAME"
+    MANIFEST_DEST="$RESOURCES_DIR/$MANIFEST_NAME"
+    STATE_DIR="$RESOURCES_DIR/$STATE_NAME"
+}
 
-if [ ! -f "$DYLIB_SOURCE" ]; then
-    echo -e "\033[31m$MSG_ERR_NO_DYLIB\033[0m"
-    exit 1
-fi
+validate_inputs() {
+    [ -d "$APP_PATH" ] && [ -f "$EXEC_PATH" ] && [ -f "$PLIST_PATH" ] || { msg bad_app >&2; return 1; }
+}
 
-if [ ! -f "$INSERT_TOOL" ]; then
-    echo -e "\033[31m$MSG_ERR_NO_TOOL\033[0m"
-    exit 1
-fi
+validate_install_artifacts() {
+    [ -f "$DYLIB_SOURCE" ] || { fail "missing $DYLIB_SOURCE"; return 1; }
+    [ -f "$INSERT_TOOL" ] || { fail "missing $INSERT_TOOL"; return 1; }
+    [ -f "$MANIFEST_TOOL" ] || { fail "missing $MANIFEST_TOOL"; return 1; }
+}
 
-echo -e "\033[36m$MSG_PROMPT\033[0m\c"
-read -r APP_PATH
-
-# 路径清洗（处理终端拖入可能产生的引号和空格）
-APP_PATH="${APP_PATH%\'}"
-APP_PATH="${APP_PATH#\'}"
-APP_PATH="${APP_PATH//\\ / }"
-APP_PATH="${APP_PATH%"${APP_PATH##*[![:space:]]}"}"
-APP_PATH="${APP_PATH#"${APP_PATH%%[![:space:]]*}"}"
-
-if [ ! -d "$APP_PATH" ]; then
-    echo -e "\033[31m$MSG_ERR_NOT_APP\033[0m"
-    exit 1
-fi
-
-EXEC_PATH="$APP_PATH/Contents/MacOS/eu4"
-if [[ ! -f "$EXEC_PATH" ]]; then
-    echo -e "\033[31m$MSG_ERR_NOT_EU4\033[0m"
-    exit 1
-fi
-
-# 定义内部路径
-FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
-RESOURCES_DIR="$APP_PATH/Contents/Resources"
-PLIST_PATH="$APP_PATH/Contents/Info.plist"
-DYLIB_DEST="$FRAMEWORKS_DIR/$DYLIB_NAME"
-BACKUP_PATH="${EXEC_PATH}_bak"
-INJECT_DYLIB_PATH="@executable_path/../Frameworks/$DYLIB_NAME"
-
-# ==========================================
-# 3. 权限智能检测
-# ==========================================
-SUDO_CMD=""
-# 如果对 Contents 目录没有写权限，则需要 sudo
-if [ ! -w "$APP_PATH/Contents" ]; then
-    echo -e "\033[33m$MSG_SUDO_REQ\033[0m"
-    sudo -v
-    if [ $? -ne 0 ]; then
-        exit 1
+detect_state() {
+    IS_INJECTED=0
+    grep -qF "$DYLIB_NAME" "$EXEC_PATH" && IS_INJECTED=1
+    ACTION=${EU4DLL_ACTION:-}
+    if [ -z "$ACTION" ]; then
+        if [ "$IS_INJECTED" -eq 1 ]; then msg choose; IFS= read -r choice; [ "$choice" = 2 ] && ACTION=uninstall || ACTION=install
+        else ACTION=install; fi
     fi
-    SUDO_CMD="sudo"
-fi
+    [ "$ACTION" = install ] || [ "$ACTION" = uninstall ] || fail "invalid action: $ACTION"
+}
 
-# ==========================================
-# 4. 检测已安装状态
-# ==========================================
-ACTION="install"
-IS_INJECTED=0
-
-# 使用 grep 快速查找二进制文件中是否已包含我们的 dylib 名字
-if grep -qF "$DYLIB_NAME" "$EXEC_PATH"; then
-    IS_INJECTED=1
-    echo -e "\033[33m$MSG_EXIST\033[0m"
-    echo -e "\033[36m$MSG_OPT_1\033[0m"
-    echo -e "\033[36m$MSG_OPT_2\033[0m"
-    echo -e "$MSG_OPT_INPUT\c"
-    read -r USER_CHOICE
-
-    if [ "$USER_CHOICE" == "2" ]; then
-        ACTION="uninstall"
-    elif [ "$USER_CHOICE" != "1" ]; then
-        echo -e "\033[31m$MSG_OPT_ERR\033[0m"
-        exit 1
+validate_ownership() {
+    if [ -e "$STATE_DIR" ]; then
+        if [ ! -d "$STATE_DIR" ]; then fail "ownership state is not a directory"; return 1; fi
+        if [ ! -f "$STATE_DIR/ownership" ] || [ ! -f "$STATE_DIR/Info.plist.original" ]; then fail "ownership state is incomplete"; return 1; fi
+        if [ "$(cat "$STATE_DIR/ownership")" != "eu4dll-installer-state-v1" ]; then fail "ownership state schema is invalid"; return 1; fi
+        return 0
     fi
-fi
+    if [ "$ACTION" = install ]; then
+        [ ! -e "$DYLIB_DEST" ] || { fail "unowned dylib already exists"; return 1; }
+        [ ! -e "$MANIFEST_DEST" ] || { fail "unowned manifest already exists"; return 1; }
+        [ ! -e "$RESOURCES_DIR/$DICT_NAME" ] || { fail "unowned dictionary already exists"; return 1; }
+    fi
+}
 
-# ==========================================
-# 5. 执行：卸载分支
-# ==========================================
-if [ "$ACTION" == "uninstall" ]; then
-    echo "$MSG_UNINSTALLING"
+configure_privilege() {
+    USE_SUDO=0
+    if [ ! -w "$CONTENTS_DIR" ]; then
+        msg sudo
+        "$SUDO" -v || return 1
+        USE_SUDO=1
+    fi
+}
 
-    # 强制恢复原版文件
+mutate() { if [ "$USE_SUDO" -eq 1 ]; then "$SUDO" "$@"; else "$@"; fi; }
+
+run_preflight() {
+    CURRENT_PHASE=preflight
+    PREFLIGHT_EXEC=$EXEC_PATH
+    if [ "$IS_INJECTED" -eq 1 ]; then
+        [ -f "$BACKUP_PATH" ] || fail "injected executable has no verified original backup"
+        if grep -qF "$DYLIB_NAME" "$BACKUP_PATH"; then fail "backup is injected"; return 1; fi
+        PREFLIGHT_EXEC=$BACKUP_PATH
+    fi
+    PREFLIGHT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/eu4dll-preflight.XXXXXX") || return 1
+    PREFLIGHT_MANIFEST="$PREFLIGHT_DIR/$MANIFEST_NAME"
+    msg preflight
+    "$MANIFEST_TOOL" "$PREFLIGHT_EXEC" "$PREFLIGHT_MANIFEST" || { msg preflight_failed >&2; return 1; }
+    [ -s "$PREFLIGHT_MANIFEST" ] || fail "manifest tool produced no manifest"
+}
+
+snapshot_path() {
+    label=$1; path=$2
+    if [ -e "$path" ]; then mkdir -p "$TX_DIR/snap"; cp -pR "$path" "$TX_DIR/snap/$label" || return 1; : > "$TX_DIR/snap/$label.exists"
+    fi
+}
+
+prepare_transaction() {
+    CURRENT_PHASE=transaction
+    TX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/eu4dll-install.XXXXXX") || return 1
+    snapshot_path exec "$EXEC_PATH" || return 1
+    snapshot_path backup "$BACKUP_PATH" || return 1
+    snapshot_path dylib "$DYLIB_DEST" || return 1
+    snapshot_path manifest "$MANIFEST_DEST" || return 1
+    snapshot_path dictionary "$RESOURCES_DIR/$DICT_NAME" || return 1
+snapshot_path plist "$PLIST_PATH" || return 1
+    snapshot_path state "$STATE_DIR" || return 1
+    snapshot_path signature "$CONTENTS_DIR/_CodeSignature" || return 1
+}
+
+restore_snapshot() {
+    label=$1; path=$2
+    mutate rm -rf "$path" || return 1
+    if [ -f "$TX_DIR/snap/$label.exists" ]; then mutate cp -pR "$TX_DIR/snap/$label" "$path" || return 1; fi
+}
+
+rollback() {
+    [ "$MUTATION_STARTED" -eq 1 ] || return 0
+    ROLLBACK_RUNNING=1
+    printf 'install.sh: rolling back failed phase=%s\n' "$CURRENT_PHASE" >&2
+    restore_snapshot exec "$EXEC_PATH"
+    restore_snapshot backup "$BACKUP_PATH"
+    restore_snapshot dylib "$DYLIB_DEST"
+    restore_snapshot manifest "$MANIFEST_DEST"
+    restore_snapshot dictionary "$RESOURCES_DIR/$DICT_NAME"
+    restore_snapshot plist "$PLIST_PATH"
+    restore_snapshot state "$STATE_DIR"
+    restore_snapshot signature "$CONTENTS_DIR/_CodeSignature"
+    cleanup_app_temps
+    ROLLBACK_RUNNING=0
+}
+
+ensure_original_backup() {
+    CURRENT_PHASE=backup
     if [ -f "$BACKUP_PATH" ]; then
-        $SUDO_CMD rm -f "$EXEC_PATH"
-        $SUDO_CMD cp -p "$BACKUP_PATH" "$EXEC_PATH"
-        # 恢复成功后删除备份文件，重置回初始未安装状态
-        $SUDO_CMD rm -f "$BACKUP_PATH"
-    else
-        echo -e "\033[33m$MSG_WARN_NO_BACKUP\033[0m"
-    fi
-
-    # 删除旧版本可能残留在 MacOS 的，以及现在在 Frameworks 的 dylib
-    $SUDO_CMD rm -f "$APP_PATH/Contents/MacOS/$DYLIB_NAME"
-    $SUDO_CMD rm -f "$DYLIB_DEST"
-
-    # 清理拼音字典
-    $SUDO_CMD rm -rf "$RESOURCES_DIR/$DICT_NAME"
-
-    # 删除 Plist 中的旧注入配置（兼容老版本卸载逻辑）和全屏配置
-    $SUDO_CMD /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:DYLD_INSERT_LIBRARIES" "$PLIST_PATH" >/dev/null 2>&1
-    $SUDO_CMD /usr/libexec/PlistBuddy -c "Delete :LSUIPresentationMode" "$PLIST_PATH" >/dev/null 2>&1
-
-    # 重签与刷新
-    echo "$MSG_SIGN"
-    $SUDO_CMD xattr -cr "$APP_PATH" >/dev/null 2>&1
-    $SUDO_CMD codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1
-    echo "$MSG_CACHE"
-    $SUDO_CMD /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
-
-    echo -e "\033[32m$MSG_UNINSTALL_DONE\033[0m"
-    exit 0
-fi
-
-# ==========================================
-# 6. 执行：安装/替换分支
-# ==========================================
-
-if [ -f "$APP_PATH/Contents/MacOS/$DYLIB_NAME" ]; then
-    # 清理旧版脚本遗留注入配置
-    $SUDO_CMD rm -f "$APP_PATH/Contents/MacOS/$DYLIB_NAME"
-    $SUDO_CMD /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:DYLD_INSERT_LIBRARIES" "$PLIST_PATH" >/dev/null 2>&1
-fi
-
-# --- 智能备份策略 ---
-if [ -f "$BACKUP_PATH" ]; then
-    if [ $IS_INJECTED -ne 1 ]; then
-        # 备份存在，但当前主文件没有被注入（可能因为 Steam 游戏更新覆盖了原文件）
-        # 这时当前文件是最新的纯净原版，我们需要覆盖旧备份
-        $SUDO_CMD rm -f "$BACKUP_PATH"
-        $SUDO_CMD cp -p "$EXEC_PATH" "$BACKUP_PATH"
-    fi
-else
-    if [ $IS_INJECTED -eq 1 ]; then
-        # 致命错误校验：没有备份却显示已注入（防止直接备份一个被污染的文件导致死循环）
-        echo -e "\033[31m$MSG_ERR_NO_BACKUP_DIRTY\033[0m"
-        exit 1
-    fi
-    # 不存在备份且未被注入，直接备份纯净原文件
-    echo "$MSG_BACKUP"
-    $SUDO_CMD cp -p "$EXEC_PATH" "$BACKUP_PATH"
-fi
-
-# 当主文件未被注入过时才执行注入操作
-if [ $IS_INJECTED -ne 1 ]; then
-  # 先赋予 insert_dylib 可执行权限
-  xattr -cr "$INSERT_TOOL"
-  chmod +x "$INSERT_TOOL"
-  # 执行 insert_dylib 注入
-  echo "$MSG_INJECTING"
-  INJECT_OUT=$($SUDO_CMD "$INSERT_TOOL" --inplace --all-yes "$INJECT_DYLIB_PATH" "$EXEC_PATH" 2>&1)
-
-  # 检测提取特征字符串判断是否成功
-  if [[ ! "$INJECT_OUT" =~ Added.*to ]]; then
-      echo -e "\033[31m$MSG_ERR_INJECT_FAIL\033[0m"
-      echo "$INJECT_OUT"
-      # 如果注入失败（如：空间不足等异常报错），强行恢复备份文件防止游戏损坏
-      $SUDO_CMD rm -f "$EXEC_PATH"
-      $SUDO_CMD cp -p "$BACKUP_PATH" "$EXEC_PATH"
-      exit 1
-  fi
-fi
-
-# 复制 dylib 到 Frameworks
-echo "$MSG_COPYING"
-$SUDO_CMD cp "$DYLIB_SOURCE" "$DYLIB_DEST"
-
-# 复制中文拼音字典逻辑
-if [ "$DICT_BEHAVIOR" != "skip" ]; then
-    if [ -e "$DICT_SOURCE" ]; then
-        DO_COPY_DICT=0
-        if [ "$DICT_BEHAVIOR" == "ask" ]; then
-            echo -e "\033[36m$MSG_ASK_DICT\033[0m\c"
-            read -r DICT_CHOICE
-            if [[ $(echo "$DICT_CHOICE" | tr '[:upper:]' '[:lower:]') == "y" ]]; then
-                DO_COPY_DICT=1
-            fi
-        else
-            DO_COPY_DICT=1 # 中文环境 auto 自动复制
+        if [ "$IS_INJECTED" -eq 0 ] && ! cmp -s "$EXEC_PATH" "$BACKUP_PATH"; then
+            mutate cp -p "$EXEC_PATH" "$BACKUP_PATH.tmp.$$" || return 1
+            mutate mv -f "$BACKUP_PATH.tmp.$$" "$BACKUP_PATH" || return 1
         fi
-
-        if [ "$DO_COPY_DICT" -eq 1 ]; then
-            echo "$MSG_COPY_DICT"
-            $SUDO_CMD cp -R "$DICT_SOURCE" "$RESOURCES_DIR/"
-        fi
-    else
-        # 找不到字典文件时予以提示但继续安装
-        echo -e "\033[33m$MSG_WARN_NO_DICT\033[0m"
+        return 0
     fi
-fi
+    [ "$IS_INJECTED" -eq 0 ] || fail "refusing to back up an injected executable"
+    mutate cp -p "$EXEC_PATH" "$BACKUP_PATH"
+}
 
-if ! grep -qF "LSUIPresentationMode" "$PLIST_PATH"; then
-  # 询问是否修复全屏遮挡
-  echo -e "\033[36m$MSG_ASK_FS\033[0m\c"
-  read -r FS_CHOICE
+inject_executable() {
+    CURRENT_PHASE=injection
+    [ "$IS_INJECTED" -eq 1 ] && return 0
+    mutate cp -p "$EXEC_PATH" "$EXEC_PATH.eu4dll-tmp" || return 1
+    output=$(mutate "$INSERT_TOOL" --inplace --all-yes "@executable_path/../Frameworks/$DYLIB_NAME" "$EXEC_PATH.eu4dll-tmp" 2>&1) || { printf '%s\n' "$output" >&2; return 1; }
+    grep -qF "$DYLIB_NAME" "$EXEC_PATH.eu4dll-tmp" || fail "injector did not produce the load command"
+    mutate mv -f "$EXEC_PATH.eu4dll-tmp" "$EXEC_PATH" || return 1
+}
 
-  # 处理全屏遮挡逻辑 (LSUIPresentationMode=4)
-  if [[ $(echo "$FS_CHOICE" | tr '[:upper:]' '[:lower:]') == "y" ]]; then
-      echo "$MSG_PLIST"
-      $SUDO_CMD /usr/libexec/PlistBuddy -c "Delete :LSUIPresentationMode" "$PLIST_PATH" >/dev/null 2>&1
-      $SUDO_CMD /usr/libexec/PlistBuddy -c "Add :LSUIPresentationMode integer 4" "$PLIST_PATH"
-  fi
-fi
+cleanup_app_temps() {
+    mutate rm -rf "$EXEC_PATH.eu4dll-tmp" "$BACKUP_PATH.tmp.$$" \
+        "$DYLIB_DEST.tmp.$$" "$MANIFEST_DEST.tmp.$$" \
+        "$RESOURCES_DIR/$DICT_NAME.tmp.$$" "$STATE_DIR.tmp.$$"
+}
 
-# 修复签名
-echo "$MSG_SIGN"
-$SUDO_CMD xattr -cr "$APP_PATH" >/dev/null 2>&1
-$SUDO_CMD codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1
+publish_state() {
+    CURRENT_PHASE=state-publish
+    if [ -d "$STATE_DIR" ]; then mutate cp -pR "$STATE_DIR" "$STATE_DIR.tmp.$$" || return 1
+    else mutate mkdir -p "$STATE_DIR.tmp.$$" || return 1; mutate cp -p "$TX_DIR/snap/plist" "$STATE_DIR.tmp.$$/Info.plist.original" || return 1; fi
+    printf 'eu4dll-installer-state-v1\n' > "$TX_DIR/state"
+    mutate cp "$TX_DIR/state" "$STATE_DIR.tmp.$$/ownership" || return 1
+    mutate rm -rf "$STATE_DIR" || return 1
+    mutate mv "$STATE_DIR.tmp.$$" "$STATE_DIR"
+}
 
-# 刷新缓存
-echo "$MSG_CACHE"
-$SUDO_CMD /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
+publish_payload() {
+    CURRENT_PHASE=mutation
+    mutate mkdir -p "$FRAMEWORKS_DIR" "$RESOURCES_DIR" || return 1
+    mutate cp "$DYLIB_SOURCE" "$DYLIB_DEST.tmp.$$" || return 1
+    mutate mv -f "$DYLIB_DEST.tmp.$$" "$DYLIB_DEST" || return 1
+    if [ "${EU4DLL_INSTALL_DICT:-auto}" != skip ] && [ -e "$DICT_SOURCE" ]; then
+        mutate rm -rf "$RESOURCES_DIR/$DICT_NAME.tmp.$$" || return 1
+        mutate cp -R "$DICT_SOURCE" "$RESOURCES_DIR/$DICT_NAME.tmp.$$" || return 1
+        mutate rm -rf "$RESOURCES_DIR/$DICT_NAME" || return 1
+        mutate mv "$RESOURCES_DIR/$DICT_NAME.tmp.$$" "$RESOURCES_DIR/$DICT_NAME" || return 1
+    fi
+}
 
-# 完成
-echo -e "\033[32m$MSG_SUCCESS\033[0m"
-exit 0
+publish_manifest() {
+    CURRENT_PHASE=manifest-publish
+    mutate cp "$PREFLIGHT_MANIFEST" "$MANIFEST_DEST.tmp.$$" || return 1
+    mutate mv -f "$MANIFEST_DEST.tmp.$$" "$MANIFEST_DEST"
+}
+
+configure_plist() {
+    CURRENT_PHASE=configuration
+    [ "${EU4DLL_FULLSCREEN_FIX:-no}" = yes ] || return 0
+    mutate "$PLISTBUDDY" -c "Delete :LSUIPresentationMode" "$PLIST_PATH" >/dev/null 2>&1 || true
+    mutate "$PLISTBUDDY" -c "Add :LSUIPresentationMode integer 4" "$PLIST_PATH"
+}
+
+sign_app() {
+    CURRENT_PHASE=sign
+    return 0
+}
+
+sign_uninstalled_app() {
+    CURRENT_PHASE=sign-uninstall
+    return 0
+}
+
+refresh_registration() { CURRENT_PHASE=registration; "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true; }
+
+install_patch_after_preflight() {
+    prepare_transaction || return 1
+    MUTATION_STARTED=1
+    ensure_original_backup || return 1
+    inject_executable || return 1
+    publish_payload || return 1
+    publish_manifest || return 1
+    configure_plist || return 1
+    publish_state || return 1
+    cleanup_app_temps || return 1
+    sign_app || return 1
+    refresh_registration
+    MUTATION_STARTED=0
+    msg installed
+}
+
+uninstall_patch() {
+    CURRENT_PHASE=uninstall
+    [ -d "$STATE_DIR" ] || { msg uninstalled; return 0; }
+    prepare_transaction || return 1
+    MUTATION_STARTED=1
+    if [ -f "$BACKUP_PATH" ]; then
+        mutate cp -p "$BACKUP_PATH" "$EXEC_PATH" || return 1
+        mutate rm -f "$BACKUP_PATH" || return 1
+    elif [ "$IS_INJECTED" -eq 1 ]; then fail "cannot restore injected executable without original backup"; fi
+    mutate rm -f "$DYLIB_DEST" "$MANIFEST_DEST" "$CONTENTS_DIR/MacOS/$DYLIB_NAME" || return 1
+    mutate rm -rf "$RESOURCES_DIR/$DICT_NAME" || return 1
+    if [ -f "$STATE_DIR/Info.plist.original" ]; then mutate cp -p "$STATE_DIR/Info.plist.original" "$PLIST_PATH" || return 1; fi
+    mutate rm -rf "$STATE_DIR" || return 1
+    cleanup_app_temps || return 1
+    sign_uninstalled_app || return 1
+    refresh_registration
+    MUTATION_STARTED=0
+    msg uninstalled
+}
+
+cleanup() { [ -n "${PREFLIGHT_DIR:-}" ] && rm -rf "$PREFLIGHT_DIR"; [ -n "$TX_DIR" ] && rm -rf "$TX_DIR"; }
+on_exit() { status=$?; if [ "$status" -ne 0 ] && [ "$ROLLBACK_RUNNING" -eq 0 ]; then rollback; fi; cleanup; exit "$status"; }
+trap on_exit EXIT HUP INT TERM
+
+main() {
+    CURRENT_PHASE=discovery; discover_app || return 1
+    CURRENT_PHASE=validation; validate_inputs || return 1
+    CURRENT_PHASE=state; detect_state || return 1
+    if [ "$ACTION" = install ]; then CURRENT_PHASE=validation; validate_install_artifacts || return 1; fi
+    CURRENT_PHASE=ownership; validate_ownership || return 1
+    if [ "$ACTION" = install ]; then run_preflight || return 1; fi
+    CURRENT_PHASE=privilege; configure_privilege || return 1
+    if [ "$ACTION" = uninstall ]; then uninstall_patch; else install_patch_after_preflight; fi
+}
+
+if [ "${EU4DLL_SOURCE_ONLY:-0}" != 1 ]; then main "$@"; fi

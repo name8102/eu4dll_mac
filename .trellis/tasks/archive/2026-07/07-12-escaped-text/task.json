@@ -1,0 +1,31 @@
+{
+  "id": "escaped-text",
+  "name": "escaped-text",
+  "title": "Deepen escaped text module",
+  "description": "Make escaped text the shared owner of conversion, traversal, cursor, deletion, and glyph semantics.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "strConvert, escaped-text callers, ownership, malformed-input behavior, portable tests",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "src/strConvert.cpp",
+    "src/strConvert.h",
+    "src/features/escaped_text/",
+    "tests/features/"
+  ],
+  "notes": "Depends on baseline-build-skeleton; enables rendering, input, save, and localization migrations.",
+  "meta": {}
+}

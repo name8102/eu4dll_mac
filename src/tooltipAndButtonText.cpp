@@ -1,7 +1,13 @@
 #include "tooltipAndButtonText.h"
-#include "global.h"
+#include "features/escaped_text/escaped_text.h"
+#include "runtime/diagnostics/startup_diagnostics.h"
+#include "targets/eu4_1_37_5/macos_x86_64/hook_symbols.h"
+#include "targets/eu4_1_37_5/macos_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/macos_x86_64/text_rendering/rendering_patch.h"
 
 namespace tooltipAndButtonText {
+    namespace target = eu4dll::targets::eu4_1_37_5::macos_x86_64;
+    namespace renderingPatch = target::text_rendering;
     extern "C" {
 
     uintptr_t g_RenderToTexture_1_BypassAddr = 0;
@@ -66,24 +72,26 @@ namespace tooltipAndButtonText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
                 "mov dword ptr [rip + _g_RenderToTexture_1_CurrentChar], eax \n"
-                "mov rbx, qword ptr [r15+rax*8+0xE8] \n"
+                "mov rbx, qword ptr [r15+rax*8+%c[glyph_table]] \n"
 
                 "jmp qword ptr [rip + _g_RenderToTexture_1_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -92,23 +100,14 @@ namespace tooltipAndButtonText {
  作用：使其正确识别双字节
  */
     void install_CBitmapFont_RenderToTexture_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 49 8B 9C C7 E8 00 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::TexturePreprocess,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToTexture_1),
+                {{"bypass", &g_RenderToTexture_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToTexture_1_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToTexture_1);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_RenderToTexture_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToTexture_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_RenderToTexture_2() {
@@ -117,7 +116,7 @@ namespace tooltipAndButtonText {
 
                 "cmp dword ptr [_g_RenderToTexture_1_CurrentChar + rip], 0xFF \n"
                 "ja 1f \n"
-                "cmp word ptr [rbx+6], 0 \n"
+                "cmp word ptr [rbx+%c[line_break]], 0 \n"
                 "jmp qword ptr [rip + _g_RenderToTexture_2_RetAddr] \n"
 
                 "1: \n"
@@ -125,15 +124,17 @@ namespace tooltipAndButtonText {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [line_break] "i"(target::base::kBitmapCharacterLineBreakOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -142,25 +143,15 @@ namespace tooltipAndButtonText {
  作用：强制每个双字节字符都检查是否换行
  */
     void install_CBitmapFont_RenderToTexture_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "66 83 7B 06 00 74 08 4D 89 EE";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::TextureLineBreak,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToTexture_2),
+                {{"return", &g_RenderToTexture_2_RetAddr},
+                 {"bypass", &g_RenderToTexture_2_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToTexture_2_RetAddr = leaAddress + 5;
-        g_RenderToTexture_2_BypassAddr = leaAddress + 0xF;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToTexture_2);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_RenderToTexture_2_RetAddr, g_RenderToTexture_2_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToTexture_2);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
 
@@ -206,23 +197,25 @@ namespace tooltipAndButtonText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
 
                 "7: \n"
-                "mov r10, qword ptr [r14+rax*8+0xE8] \n"
+                "mov r10, qword ptr [r14+rax*8+%c[glyph_table]] \n"
                 "jmp qword ptr [rip + _g_RenderToTexture_3_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [glyph_table] "i"(target::base::kGlyphTableOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -231,23 +224,14 @@ namespace tooltipAndButtonText {
  作用：部分UI组件使用这个渲染函数
  */
     void install_CBitmapFont_RenderToTexture_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "0F B6 00 4D 8B 94 C6 E8 00 00 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::TextureGlyphLoop,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToTexture_3),
+                {{"bypass", &g_RenderToTexture_3_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToTexture_3_BypassAddr = leaAddress + 0xB;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToTexture_3);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx\n", __func__,
-               matchAddress, leaAddress, g_RenderToTexture_3_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToTexture_3);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     void install() {

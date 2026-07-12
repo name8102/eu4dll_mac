@@ -18,11 +18,14 @@ jobs:
 
       - name: Configure CMake
         # 配置 CMake，生成目录为 build，设置为 Release 模式
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build Project
         # 执行编译
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --target eu4dll_tests eu4dll_manifest_tool
+
+      - name: Run Tests
+        run: ctest --test-dir build --output-on-failure
 
       - name: Verify cpp-pinyin Static Link
         run: |
@@ -32,12 +35,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Architecture, Deployment Target, and Resources
+        run: |
+          test "$(lipo -archs build/libeu4dll_mac.dylib)" = "x86_64"
+          test "$(lipo -archs build/tool/insert_dylib)" = "x86_64"
+          test "$(lipo -archs build/tool/eu4dll_manifest_tool)" = "x86_64"
+          vtool -show-build build/libeu4dll_mac.dylib | grep -Eq 'minos 11\.0'
+          vtool -show-build build/tool/insert_dylib | grep -Eq 'minos 11\.0'
+          vtool -show-build build/tool/eu4dll_manifest_tool | grep -Eq 'minos 11\.0'
+          test "$(find build/chinese_dict -type f | wc -l | tr -d ' ')" -eq 12
+
       - name: CodeSign Ad-Hoc
         # 对编译产物进行 Ad-hoc 签名
         # --force 表示覆盖已有的签名(如果有的话)，--sign - 代表使用 adhoc(身份为短横线) 进行签名
         run: |
           codesign --force --sign - build/libeu4dll_mac.dylib
           codesign --force --sign - build/tool/insert_dylib
+          codesign --force --sign - build/tool/eu4dll_manifest_tool
 
       - name: Prepare Package
         # 创建打包临时文件夹，将签名后的动态库和 insert_dylib、install.sh 复制进去
@@ -45,6 +59,7 @@ jobs:
           mkdir release_package
           cp build/libeu4dll_mac.dylib release_package/
           cp build/tool/insert_dylib release_package/
+          cp build/tool/eu4dll_manifest_tool release_package/
           cp install.sh release_package/
           cp -R build/chinese_dict release_package/
 

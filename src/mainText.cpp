@@ -1,7 +1,12 @@
 #include "mainText.h"
-#include "global.h"
+#include "features/escaped_text/escaped_text.h"
+#include "runtime/diagnostics/startup_diagnostics.h"
+#include "targets/eu4_1_37_5/macos_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/macos_x86_64/text_rendering/rendering_patch.h"
 
 namespace mainText {
+    namespace target = eu4dll::targets::eu4_1_37_5::macos_x86_64;
+    namespace renderingPatch = target::text_rendering;
     extern "C" {
     uintptr_t g_RenderToScreen_3_RetAddr = 0;
     uintptr_t g_RenderToScreen_3_BypassAddr = 0;
@@ -67,21 +72,22 @@ namespace mainText {
 
                 "cmp edx, 256 \n"
                 "jb 7f \n"
-                "add edx, 1712 \n"
+                "add edx, %c[go] \n"
                 "7: \n"
                 "jmp qword ptr [rip + _g_RenderToScreen_1_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -90,24 +96,15 @@ namespace mainText {
  作用：使其能正确识别双字节文本
  */
     void install_CBitmapFont_RenderToScreen_1() {
-        TRACK_FUNCTION();
-        std::string pattern = "42 0F B6 14 1F 80 7D 38 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::ScreenPreprocess,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToScreen_1),
+                {{"return", &g_RenderToScreen_1_RetAddr},
+                 {"bypass", &g_RenderToScreen_1_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToScreen_1_RetAddr = leaAddress + 5;
-        g_RenderToScreen_1_BypassAddr = leaAddress + 0x57;
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToScreen_1);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_RenderToScreen_1_RetAddr, g_RenderToScreen_1_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToScreen_1);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_RenderToScreen_2() {
@@ -117,7 +114,7 @@ namespace mainText {
                 "cmp dword ptr [_g_RenderToScreen_1_CurrentChar + rip], 0xFF \n"
                 "ja 1f \n"
 
-                "cmp word ptr [r14+6], 0 \n"
+                "cmp word ptr [r14+%c[line_break]], 0 \n"
                 "jmp qword ptr [rip + _g_RenderToScreen_2_RetAddr] \n"
 
                 "1: \n"
@@ -125,15 +122,17 @@ namespace mainText {
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [line_break] "i"(target::base::kBitmapCharacterLineBreakOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -142,25 +141,15 @@ namespace mainText {
  作用：双字节文本时强制检测是否换行
  */
     void install_CBitmapFont_RenderToScreen_2() {
-        TRACK_FUNCTION();
-        std::string pattern = "66 41 83 7E 06 00 0F 84";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::ScreenLineBreak,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToScreen_2),
+                {{"return", &g_RenderToScreen_2_RetAddr},
+                 {"bypass", &g_RenderToScreen_2_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToScreen_2_RetAddr = leaAddress + 6;
-        g_RenderToScreen_2_BypassAddr = leaAddress + 0x297;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToScreen_2);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_RenderToScreen_2_RetAddr, g_RenderToScreen_2_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToScreen_2);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     __attribute__((naked)) void naked_CBitmapFont_RenderToScreen_3() {
@@ -206,21 +195,22 @@ namespace mainText {
 
                 "cmp eax, 256 \n"
                 "jb 7f \n"
-                "add eax, 1712 \n"
+                "add eax, %c[go] \n"
                 "7: \n"
                 "jmp qword ptr [rip + _g_RenderToScreen_3_BypassAddr] \n"
 
                 ".att_syntax prefix \n"
                 :
-                : [e1] "i"(ESCAPE_SEQ_1),
-        [e2] "i"(ESCAPE_SEQ_2),
-        [e3] "i"(ESCAPE_SEQ_3),
-        [e4] "i"(ESCAPE_SEQ_4),
-        [s2] "i"(SHIFT_2),
-        [s3] "i"(SHIFT_3),
-        [s4] "i"(SHIFT_4),
-        [nf] "i"(NO_FONT),
-        [nd] "i"(NOT_DEF)
+                : [e1] "i"(eu4dll::escaped_text::kEscape1),
+        [e2] "i"(eu4dll::escaped_text::kEscape2),
+        [e3] "i"(eu4dll::escaped_text::kEscape3),
+        [e4] "i"(eu4dll::escaped_text::kEscape4),
+        [s2] "i"(eu4dll::escaped_text::kEscape2Shift),
+        [s3] "i"(eu4dll::escaped_text::kEscape3Shift),
+        [s4] "i"(eu4dll::escaped_text::kEscape4Shift),
+        [go] "i"(eu4dll::escaped_text::kUnicodeGlyphOffset),
+        [nf] "i"(target::rendering::kMissingFontGlyph),
+        [nd] "i"(target::rendering::kUndefinedGlyph)
         );
     }
 
@@ -229,25 +219,15 @@ namespace mainText {
  作用：使其能正确识别双字节文本
  */
     void install_CBitmapFont_RenderToScreen_3() {
-        TRACK_FUNCTION();
-        std::string pattern = "41 0F B6 04 04 80 7D 38 00";
-        uintptr_t matchAddress = ScanMainModule(pattern);
-
-        if (matchAddress == 0) {
-            printf("eu4dll_mac [Error] %s 特征码查找失败！\n", __func__);
+        eu4dll::diagnostics::InstallGuard installGuard(__func__, target::kDiagnosticTargetId);
+        if (!renderingPatch::install({
+                renderingPatch::PatchId::ScreenGlyphLoop,
+                reinterpret_cast<uintptr_t>(naked_CBitmapFont_RenderToScreen_3),
+                {{"return", &g_RenderToScreen_3_RetAddr},
+                 {"bypass", &g_RenderToScreen_3_BypassAddr}}})) {
             return;
         }
-        uintptr_t leaAddress = matchAddress;
-        g_RenderToScreen_3_RetAddr = leaAddress + 5;
-        g_RenderToScreen_3_BypassAddr = leaAddress + 0x1B4;
-
-        HookJMP(leaAddress, (uintptr_t) naked_CBitmapFont_RenderToScreen_3);
-
-        printf("eu4dll_mac [Success] %s HookJMP 匹配地址:0x%lx Hook地址:0x%lx 返回地址:0x%lx 返回地址2:0x%lx\n",
-               __func__,
-               matchAddress, leaAddress, g_RenderToScreen_3_RetAddr, g_RenderToScreen_3_BypassAddr);
-        OptimizeNakedHook((uintptr_t) naked_CBitmapFont_RenderToScreen_3);
-        SET_SUCCESS();
+        installGuard.MarkSuccess();
     }
 
     void install() {

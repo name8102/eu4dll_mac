@@ -1,27 +1,27 @@
-#include <cpp-pinyin/Pinyin.h>
-#include <cpp-pinyin/G2pglobal.h>
-#include <memory>
+#pragma once
 
-class PinyinHelper {
+#include "features/localized_search/localized_search.h"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+// Target-facing adapter. cpp-pinyin is deliberately hidden in the .cpp file.
+class PinyinHelper final : public eu4dll::features::localized_search::PinyinProvider {
 public:
-    static PinyinHelper &getInstance() {
-        static PinyinHelper instance;
-        return instance;
-    }
+    static PinyinHelper &getInstance();
 
     PinyinHelper(const PinyinHelper &) = delete;
-
     PinyinHelper &operator=(const PinyinHelper &) = delete;
 
-    std::shared_ptr<std::vector<std::string>> getPinyin(const std::string &text);
+    std::vector<std::string> ReadingsFor(const std::string &utf8Character) override;
+    static void SetDictionaryPath(const std::string &path);
 
 private:
+    struct Implementation;
+
     PinyinHelper();
+    ~PinyinHelper();
 
-    ~PinyinHelper() = default;
-
-    std::vector<std::string> getPinyinAndInitials(const std::string &str);
-
-    std::unordered_map<std::string, std::shared_ptr<std::vector<std::string>>> cache_;
-    std::unique_ptr<Pinyin::Pinyin> g2p_man;
+    std::unique_ptr<Implementation> implementation_;
 };

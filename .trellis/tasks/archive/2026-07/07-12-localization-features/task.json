@@ -1,0 +1,32 @@
+{
+  "id": "localization-features",
+  "name": "localization-features",
+  "title": "Migrate save and localization features",
+  "description": "Migrate save filenames and deepen localized search, East Asian names, UTF-8 localization loading, and date formatting.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "save filenames, localization, pinyin search, name ordering, date formatting, focused feature tests",
+  "package": null,
+  "priority": "P2",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "src/saveFileName.cpp",
+    "src/localization.cpp",
+    "src/pinyinHelper.cpp",
+    "src/pinyinHelper.h",
+    "src/features/"
+  ],
+  "notes": "Depends on patch-runtime, macos-target-profile, and escaped-text.",
+  "meta": {}
+}

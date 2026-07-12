@@ -1,0 +1,32 @@
+{
+  "id": "text-rendering",
+  "name": "text-rendering",
+  "title": "Migrate text rendering hooks",
+  "description": "Migrate all rendering and layout hooks to the patch runtime and shared escaped-text behavior.",
+  "status": "completed",
+  "dev_type": "refactor",
+  "scope": "main text, tooltip/texture text, text layout, map text, 3D text, target hook adapters",
+  "package": null,
+  "priority": "P2",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-07-12",
+  "completedAt": "2026-07-12",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "src/mainText.cpp",
+    "src/tooltipAndButtonText.cpp",
+    "src/textLayout.cpp",
+    "src/mapText.cpp",
+    "src/text3D.cpp"
+  ],
+  "notes": "Depends on patch-runtime, macos-target-profile, and escaped-text.",
+  "meta": {}
+}
