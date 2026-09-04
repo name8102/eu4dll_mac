@@ -1,0 +1,4 @@
+{"file":".trellis/spec/project/architecture.md","reason":"Project module boundaries and ownership rules"}
+{"file":".trellis/spec/project/platform-compatibility.md","reason":"Platform/target compatibility and validation requirements"}
+{"file":".trellis/spec/project/quality.md","reason":"Build, test, diagnostics, and regression expectations"}
+{"file":".trellis/tasks/09-05-linux-port-foundation/research/legacy-linux-port.md","reason":"Verified Linux prototype facts, target constants, and migration constraints"}
