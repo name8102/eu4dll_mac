@@ -1,0 +1,4 @@
+{"file":".trellis/spec/project/architecture.md","reason":"Verify final ownership boundaries remain consistent"}
+{"file":".trellis/spec/project/platform-compatibility.md","reason":"Verify Linux support claims and exact target validation"}
+{"file":".trellis/spec/project/quality.md","reason":"Verify required regression, diagnostics, and test coverage"}
+{"file":".trellis/tasks/09-05-linux-port-foundation/research/legacy-linux-port.md","reason":"Cross-check migrated Linux facts against the validated prototype source"}
