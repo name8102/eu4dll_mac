@@ -1,0 +1,40 @@
+{
+  "id": "linux-port-foundation",
+  "name": "linux-port-foundation",
+  "title": "Establish Linux runtime foundation and port base hooks",
+  "description": "Integrate the proven Linux port knowledge from name8102/eu4dll_linux into the refactored multi-platform architecture, stopping at a production-quality Linux runtime foundation plus the EU4 1.37.5 linux_x86_64 base vertical slice.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "Linux build graph, ELF process memory, executable identity, patch runtime branch reachability and atomic batches, Linux target profile, bootstrap/loading, base hooks, tests, and migration documentation",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": [
+    "CMakeLists.txt",
+    "src/runtime/patch/",
+    "src/runtime/manifest/",
+    "src/platform/",
+    "src/targets/eu4_1_37_5/",
+    "src/bootstrap/",
+    "tests/",
+    ".trellis/spec/project/"
+  ],
+  "notes": "Use eu4dll_mac/main as the canonical tree. Treat name8102/eu4dll_linux@linux-port as a Linux binary-research and working-prototype source, not as a source tree to merge. Do not port textLayout, mainText, mapText, text3D, input, pinyin, or save-file features in this task.",
+  "meta": {
+    "legacy_repo": "name8102/eu4dll_linux",
+    "legacy_ref": "linux-port",
+    "legacy_commit": "102241a9116ce521170c75ce80e303698c4c427f",
+    "target": "EU4 1.37.5.0 Inca native Linux x86-64"
+  }
+}
