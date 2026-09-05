@@ -132,6 +132,9 @@ if(APPLE)
             eu4dll_input_bridge_tests
             eu4dll_mac)
 else()
+    find_program(EU4DLL_PYTHON3 python3 REQUIRED)
+    add_test(NAME eu4dll.installer.linux
+            COMMAND "${EU4DLL_PYTHON3}" "${CMAKE_CURRENT_SOURCE_DIR}/linux_install_tests.py")
     add_custom_target(eu4dll_tests DEPENDS
             eu4dll_build_skeleton_tests
             eu4dll_escaped_text_tests

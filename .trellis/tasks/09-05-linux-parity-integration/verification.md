@@ -136,3 +136,21 @@ Implementation and publication are closed out. Extended user gameplay remains
 pending, so the release is explicitly a prerelease and the broader stability
 acceptance task remains open. The already accepted local installation was not
 replaced with the cloud package during release verification.
+
+## Unified installer and release-quality follow-up
+
+Review scope: current installer/README/workflow changes, their packaging callers,
+and focused checks of the existing Linux bridge contracts. No gameplay hook was
+changed. Found and reproduced a Linux installer bug: missing launch-eu4.sh failed
+after renaming the game executable. Fixed preflight, staged payload publication
+and rollback. Four disposable-fixture tests cover missing launcher, install/update,
+first/update rollback failure injection and explicit/interactive Unicode paths.
+
+Common install.sh now dispatches by OS. Existing macOS fake-App integration tests
+exercise its positional path while preserving environment-based entry. Both ZIPs
+use a shared packaging script with complete dictionaries, README, LICENSE,
+third-party notices and build metadata. Extended README and changelog distinguish
+verified behavior from the still-pending user gameplay soak.
+
+Local strict Linux build and 24 CTests pass. Shell syntax, actionlint and local
+README link checks pass. Final cloud validation and preview.2 publication follow.

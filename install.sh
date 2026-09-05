@@ -3,14 +3,68 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# One public entry point for source checkouts and both release packages.
+# Source-only mode preserves the existing macOS installer test helpers.
+if [ "${EU4DLL_SOURCE_ONLY:-0}" != 1 ]; then
+    case "${1:-}" in
+        -h|--help)
+            cat <<'EOF'
+Usage: bash install.sh [GAME_PATH]
+
+macOS: GAME_PATH is eu4.app.
+Linux: GAME_PATH is the Europa Universalis IV game directory.
+Omit GAME_PATH to enter it interactively. Paths containing spaces must be quoted.
+
+Linux source builds may add: --build-dir /path/to/build-linux
+macOS automation retains EU4DLL_APP_PATH and EU4DLL_ACTION=install|uninstall.
+EOF
+            exit 0
+            ;;
+    esac
+    case "$(uname -s)" in
+        Linux)
+            if [ -f "$SCRIPT_DIR/install.py" ]; then
+                LINUX_INSTALLER="$SCRIPT_DIR/install.py"
+            else
+                LINUX_INSTALLER="$SCRIPT_DIR/scripts/linux/install.py"
+            fi
+            [ -f "$LINUX_INSTALLER" ] || { printf '%s\n' 'Missing Linux installer. Download the Linux package.' >&2; exit 1; }
+            command -v python3 >/dev/null 2>&1 || { printf '%s\n' 'Python 3.11 or later is required for Linux installation.' >&2; exit 1; }
+            python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { printf '%s\n' 'Python 3.11 or later is required for Linux installation.' >&2; exit 1; }
+            if [ "$#" -eq 0 ]; then
+                printf '%s' '请输入游戏目录 / Enter the Europa Universalis IV game directory: '
+                IFS= read -r GAME_PATH || exit 1
+                GAME_PATH=${GAME_PATH#\'}; GAME_PATH=${GAME_PATH%\'}
+                GAME_PATH=${GAME_PATH#\"}; GAME_PATH=${GAME_PATH%\"}
+                GAME_PATH=${GAME_PATH//\\ / }
+                [ -n "$GAME_PATH" ] || { printf '%s\n' 'Game path is required.' >&2; exit 1; }
+                set -- "$GAME_PATH"
+            fi
+            exec python3 "$LINUX_INSTALLER" "$@"
+            ;;
+        Darwin)
+            [ "$#" -le 1 ] || { printf '%s\n' 'Usage: bash install.sh [eu4.app]' >&2; exit 2; }
+            if [ "$#" -eq 1 ]; then export EU4DLL_APP_PATH="$1"; fi
+            ;;
+        *) printf '%s\n' 'Supported installation platforms: macOS and Linux.' >&2; exit 2 ;;
+    esac
+fi
+
 DYLIB_NAME="libeu4dll_mac.dylib"
 MANIFEST_NAME="eu4dll-patch-manifest.bin"
 STATE_NAME="eu4dll-install-state"
 DICT_NAME="chinese_dict"
-DYLIB_SOURCE=${EU4DLL_DYLIB_SOURCE:-"$SCRIPT_DIR/$DYLIB_NAME"}
-INSERT_TOOL=${EU4DLL_INSERT_TOOL:-"$SCRIPT_DIR/insert_dylib"}
-MANIFEST_TOOL=${EU4DLL_MANIFEST_TOOL:-"$SCRIPT_DIR/eu4dll_manifest_tool"}
-DICT_SOURCE=${EU4DLL_DICT_SOURCE:-"$SCRIPT_DIR/$DICT_NAME"}
+ARTIFACT_DIR=$SCRIPT_DIR
+TOOL_DIR=$SCRIPT_DIR
+if [ ! -f "$SCRIPT_DIR/$DYLIB_NAME" ] && [ -f "$SCRIPT_DIR/build/$DYLIB_NAME" ]; then
+    ARTIFACT_DIR="$SCRIPT_DIR/build"
+    TOOL_DIR="$ARTIFACT_DIR/tool"
+fi
+DYLIB_SOURCE=${EU4DLL_DYLIB_SOURCE:-"$ARTIFACT_DIR/$DYLIB_NAME"}
+INSERT_TOOL=${EU4DLL_INSERT_TOOL:-"$TOOL_DIR/insert_dylib"}
+MANIFEST_TOOL=${EU4DLL_MANIFEST_TOOL:-"$TOOL_DIR/eu4dll_manifest_tool"}
+DICT_SOURCE=${EU4DLL_DICT_SOURCE:-"$ARTIFACT_DIR/$DICT_NAME"}
 PLISTBUDDY=${EU4DLL_PLISTBUDDY:-/usr/libexec/PlistBuddy}
 CODESIGN=${EU4DLL_CODESIGN:-codesign}
 XATTR=${EU4DLL_XATTR:-xattr}

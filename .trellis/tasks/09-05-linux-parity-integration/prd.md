@@ -15,3 +15,5 @@ All Linux migration children plus the stable foundation.
 ## Follow-up scope requested by user
 - Implement Linux save header/continue tooltip filename conversion, topbar year-month-day format and East Asian name order using calibrated sites.
 - Preserve working input/search/map paths; verify actual ELF calls before deployment.
+
+- Follow-up release preparation: unify macOS/Linux install.sh entry, complete README, review installer/publishing quality, repair evidenced failures, and publish verified updated packages.

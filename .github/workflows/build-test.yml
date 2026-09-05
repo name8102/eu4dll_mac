@@ -56,20 +56,8 @@ jobs:
           codesign --force --sign - build/tool/insert_dylib
           codesign --force --sign - build/tool/eu4dll_manifest_tool
 
-      - name: Prepare Package
-        run: |
-          mkdir release_package
-          cp build/libeu4dll_mac.dylib release_package/
-          cp build/tool/insert_dylib release_package/
-          cp build/tool/eu4dll_manifest_tool release_package/
-          cp install.sh release_package/
-          cp -R build/chinese_dict release_package/
-
-      - name: Create ZIP Archive
-        run: |
-          cd release_package
-          zip -r ../eu4dll-macos-x86_64.zip ./*
-          cd ..
+      - name: Package macOS library and installer
+        run: python3 scripts/package_release.py --platform macos --build-dir build --output eu4dll-macos-x86_64.zip
 
       - name: Upload Test Package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,24 +92,12 @@ jobs:
             echo '::error::cpp-pinyin must be statically linked'
             exit 1
           fi
-          bash -n scripts/linux/launch-eu4.sh scripts/linux/probe.sh
-          python3 scripts/linux/install.py --help
+          bash -n install.sh scripts/linux/launch-eu4.sh scripts/linux/probe.sh
+          bash install.sh --help
           scripts/linux/launch-eu4.sh --dry-run
 
       - name: Package Linux library and installer
-        run: |
-          mkdir -p release_package
-          cp build-linux/libeu4dll_linux.so release_package/
-          cp scripts/linux/launch-eu4.sh scripts/linux/install.py release_package/
-          cp docs/LINUX_ADAPTATION.zh-CN.md release_package/README.md
-          cp -R build-linux/chinese_dict release_package/
-          git rev-parse HEAD > release_package/BUILD_INFO.txt
-          uname -a >> release_package/BUILD_INFO.txt
-          c++ --version >> release_package/BUILD_INFO.txt
-          readelf --version-info build-linux/libeu4dll_linux.so >> release_package/BUILD_INFO.txt
-          python3 release_package/install.py --help
-          cd release_package
-          zip -r ../eu4dll-linux-x86_64.zip .
+        run: python3 scripts/package_release.py --platform linux --build-dir build-linux --output eu4dll-linux-x86_64.zip
 
       - name: Upload Linux package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

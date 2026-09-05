@@ -59,7 +59,7 @@ run_installer() {
     EU4DLL_DYLIB_SOURCE="$tools/libeu4dll_mac.dylib" EU4DLL_DICT_SOURCE="$tools/chinese_dict" \
     EU4DLL_PLISTBUDDY="$tools/PlistBuddy" EU4DLL_CODESIGN="$tools/codesign" \
     EU4DLL_XATTR="$tools/xattr" EU4DLL_LSREGISTER="$tools/lsregister" EU4DLL_SUDO="$tools/sudo" \
-    EU4DLL_FULLSCREEN_FIX=no EU4DLL_INSTALL_DICT=auto "$tools/install.sh"
+    EU4DLL_FULLSCREEN_FIX=no EU4DLL_INSTALL_DICT=auto "$tools/install.sh" "$app"
 }
 
 TOOLS="$TMP_ROOT/package tools"

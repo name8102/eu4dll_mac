@@ -4,7 +4,8 @@
 `af115d3b0e54a05eca0198ed569db90ca225728afda03b5ac4ded251520a7ce3`。
 其他二进制在安装前拒绝打补丁。中文字体与本地化内容仍由中文模组提供。
 
-当前预发布版本：[v0.1.0-preview.1](https://github.com/name8102/eu4dll_multiplatform/releases/tag/v0.1.0-preview.1)。
+预发布下载：[Releases](https://github.com/name8102/eu4dll_multiplatform/releases)。
+以下云端计数为首个预发布版本的基线，统一安装入口后的新增安装测试另见发布说明。
 [云端验证](https://github.com/name8102/eu4dll_multiplatform/actions/runs/33954038894)通过 Linux 23 项和 macOS 20 项测试；长期游玩验证待用户后续完成。
 
 ## 当前结果（2026-09-05）
@@ -33,7 +34,7 @@
 下载 Release 的 `eu4dll-linux-x86_64.zip` 后解压，在解压目录执行：
 
 ```sh
-python3 install.py '/path/to/Europa Universalis IV'
+bash install.sh '/path/to/Europa Universalis IV'
 ```
 
 云端 Linux 包在 Ubuntu 24.04 x86-64 上构建，运行环境需提供对应 glibc/libstdc++
@@ -48,10 +49,10 @@ cmake --build build-linux -j 6
 ctest --test-dir build-linux --output-on-failure
 scripts/linux/probe.sh '/path/to/Europa Universalis IV/eu4.orig'
 SDL_DYNAMIC_API=/usr/lib/libSDL2-2.0.so.0 scripts/linux/probe.sh '/path/to/Europa Universalis IV/eu4.orig'
-python3 scripts/linux/install.py '/path/to/Europa Universalis IV'
+bash install.sh '/path/to/Europa Universalis IV'
 ```
 
-安装器先校验原始 ELF，再备份现有启动器、动态库和字典，逐文件原子替换。
+安装器先校验原始 ELF 与全部安装材料，暂存完整安装内容，再备份现有启动器、动态库和字典。文件原子替换；发生错误时恢复本次修改。
 备份及带 SHA-256 的安装清单位于游戏目录 `eu4dll-backups/<时间>/`。
 原始 ELF 保留为 `eu4.orig`。输入开启时启动器默认设置
 `SDL_DYNAMIC_API=libSDL2-2.0.so.0` 和 X11 后端，保留用户显式设置；

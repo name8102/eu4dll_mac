@@ -8,11 +8,11 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -54,21 +54,7 @@ jobs:
           codesign --force --sign - build/tool/eu4dll_manifest_tool
 
       - name: Prepare Package
-        # 创建打包临时文件夹，将签名后的动态库和 insert_dylib、install.sh 复制进去
-        run: |
-          mkdir release_package
-          cp build/libeu4dll_mac.dylib release_package/
-          cp build/tool/insert_dylib release_package/
-          cp build/tool/eu4dll_manifest_tool release_package/
-          cp install.sh release_package/
-          cp -R build/chinese_dict release_package/
-
-      - name: Create ZIP Archive
-        # 压缩文件，名字带上自动递增的版本号 github.run_number
-        run: |
-          cd release_package
-          zip -r ../eu4dll_mac_build_${{ github.run_number }}.zip ./*
-          cd ..
+        run: python3 scripts/package_release.py --platform macos --build-dir build --output eu4dll_mac_build_${{ github.run_number }}.zip
 
       - name: Generate Release Body
         run: |
