@@ -154,3 +154,28 @@ verified behavior from the still-pending user gameplay soak.
 
 Local strict Linux build and 24 CTests pass. Shell syntax, actionlint and local
 README link checks pass. Final cloud validation and preview.2 publication follow.
+
+
+## preview.2 published checkpoint
+
+- Code/tag commit: `9eeb962ddd8022c93fb854ad2af07fe18a59aa9c`.
+- Cloud run: https://github.com/name8102/eu4dll_multiplatform/actions/runs/33954672791
+- Linux strict build and 24 CTests pass; macOS build and 20 CTests pass.
+  Both platforms passed their artifact checks and shared package builder.
+- Both ZIPs contain 26 files, complete dictionary resources and licenses, the
+  common installer, README, changelog and clean-tree source metadata matching
+  the tagged commit. ZIP integrity and macOS tool executable bits checked.
+- Downloaded Linux ZIP passed the common install.sh entry in an isolated
+  temporary game directory with a Unicode/space path and a read-only reference
+  to the actual validated ELF. User installation was not modified.
+- Linux library remains byte-identical to the earlier real-ELF-validated cloud
+  library: `424c1c93740ae6a58647f99064aec8aec4c6ea73be2d6b602d7a04e408b4471a`.
+- Published prerelease:
+  https://github.com/name8102/eu4dll_multiplatform/releases/tag/v0.1.0-preview.2
+- Linux ZIP SHA-256: `32e5ab376b6302aa5eee8b52b8be88e53d456637a086c6c611df28e245e58784`.
+- macOS ZIP SHA-256: `45817ddb6cb4457f765237e7038114b261b3fa6e0ca95720b8410532ee47cd12`.
+- GitHub asset digests match local ZIP hashes; remote release tag resolves to
+  the verified commit. Both packages and SHA256SUMS.txt are published.
+
+Installer/documentation/release preparation is complete. Long-play acceptance
+remains pending as previously agreed; no new gameplay hook changes in preview.2.

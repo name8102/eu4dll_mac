@@ -15,7 +15,7 @@
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
-  "commit": "67659604a6090fd9fcb49a8cdde701f60a81aca3",
+  "commit": "9eeb962ddd8022c93fb854ad2af07fe18a59aa9c",
   "pr_url": null,
   "subtasks": [],
   "children": [],
@@ -28,7 +28,7 @@
     "tool/",
     "docs/"
   ],
-  "notes": "Functional implementation closeout accepted by user on 2026-09-05. Linux Chinese rendering, map spacing, IME/editing, clipboard adapters, pinyin search, local save names, date and East Asian names are integrated. User confirmed all reported visible issues resolved. Normal/strict builds, 23 CTests each and real ELF/installed-launcher probes pass; see verification.md for exact scope. User will perform extended gameplay in a few days. Keep this broader stability task in_progress until long-play evidence is available. Repository renamed to name8102/eu4dll_multiplatform; implementation is ready for commit/push. Published v0.1.0-preview.1 from verified commit 6765960: cloud run 33954038894 passed Linux 23 tests and macOS 20 tests; both installable ZIPs and checksums uploaded and verified. Implementation/publication closed out; awaiting user extended gameplay. See verification.md.",
+  "notes": "Functional implementation closeout accepted by user on 2026-09-05. Linux Chinese rendering, map spacing, IME/editing, clipboard adapters, pinyin search, local save names, date and East Asian names are integrated. User confirmed all reported visible issues resolved. Normal/strict builds, 23 CTests each and real ELF/installed-launcher probes pass; see verification.md for exact scope. User will perform extended gameplay in a few days. Keep this broader stability task in_progress until long-play evidence is available. Repository renamed to name8102/eu4dll_multiplatform; implementation is ready for commit/push. Published v0.1.0-preview.1 from verified commit 6765960: cloud run 33954038894 passed Linux 23 tests and macOS 20 tests; both installable ZIPs and checksums uploaded and verified. Implementation/publication closed out; awaiting user extended gameplay. See verification.md. Unified installer and release-quality follow-up published as v0.1.0-preview.2: cloud run 33954672791 passed Linux 24 and macOS 20 tests. Both cloud ZIPs, source metadata and published digests verified; isolated Linux package installation passed. Gameplay hooks unchanged and long-play acceptance still pending.",
   "meta": {
     "depends_on": [
       "09-05-linux-main-text",
