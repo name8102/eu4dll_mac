@@ -11,6 +11,7 @@
 #include "targets/eu4_1_37_5/linux_x86_64/main_text/main_text_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/tooltip_text/tooltip_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/localization_text/localization_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/map_text/map_text_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 
 #include <cstdio>
@@ -206,6 +207,34 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
         log << " localization=" << localizationInstalled.diagnostic.message;
     } else {
         log << " localization=disabled";
+    }
+
+    const char *enableMapText = std::getenv("EU4DLL_ENABLE_MAP_TEXT");
+    const bool mapTextOn =
+        enableMapText != nullptr && std::strcmp(enableMapText, "1") == 0;
+    if (mapTextOn) {
+        if (!tooltipOn) {
+            error = "mapText install failed: EU4DLL_ENABLE_MAP_TEXT=1 "
+                    "requires EU4DLL_ENABLE_TOOLTIP_TEXT=1";
+            return false;
+        }
+        const auto mapPreflight =
+            target::map_text::PreflightMapText(memory, s_liveAllocator);
+        if (!mapPreflight) {
+            error = "mapText preflight failed: " +
+                    patch::FormatDiagnostic(mapPreflight.diagnostic);
+            return false;
+        }
+        const auto mapInstalled =
+            target::map_text::InstallMapText(memory, s_liveAllocator);
+        if (!mapInstalled) {
+            error = "mapText install failed: " +
+                    patch::FormatDiagnostic(mapInstalled.diagnostic);
+            return false;
+        }
+        log << " mapText=" << mapInstalled.diagnostic.message;
+    } else {
+        log << " mapText=disabled";
     }
 
     report = log.str();

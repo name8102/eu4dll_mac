@@ -72,4 +72,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_runtime)
     add_test(NAME eu4dll.target.linux_localization
             COMMAND eu4dll_linux_localization_tests)
+
+    add_executable(eu4dll_linux_map_text_tests linux_map_text_tests.cpp)
+    target_compile_features(eu4dll_linux_map_text_tests PRIVATE cxx_std_17)
+    target_link_libraries(eu4dll_linux_map_text_tests PRIVATE
+            eu4dll_target_map_text_eu4_1_37_5_linux_x86_64
+            eu4dll_target_profile_eu4_1_37_5_linux_x86_64
+            eu4dll_runtime)
+    add_test(NAME eu4dll.target.linux_map_text
+            COMMAND eu4dll_linux_map_text_tests)
 endif()

@@ -69,3 +69,14 @@ target_link_libraries(eu4dll_target_localization_eu4_1_37_5_linux_x86_64 PUBLIC
         eu4dll_runtime
         eu4dll_localization_features
         eu4dll_target_profile_eu4_1_37_5_linux_x86_64)
+
+add_library(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 STATIC
+        map_text/map_text_patch.cpp
+        map_text/map_text_patch.h)
+target_compile_features(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC cxx_std_17)
+target_include_directories(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC
+        ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime
+        eu4dll_portable_features
+        eu4dll_target_profile_eu4_1_37_5_linux_x86_64)

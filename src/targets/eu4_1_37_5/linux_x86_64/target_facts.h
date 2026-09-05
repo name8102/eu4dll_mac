@@ -221,4 +221,69 @@ inline constexpr std::array<std::uint8_t, 5> kValueConversionOriginal{{
     0xE8, 0x80, 0x66, 0x1E, 0x00}};
 }  // namespace localization_utf8
 
+// Map-text facts. Four independently-gated clusters (see map_text/
+// ABI_NOTES.md): FillVertexBuffer, AddNameArea (+ToUpper), AddNudgedNames,
+// CurveText. CurveText has no dynamic symbol: its sites are scoped to
+// AddNameArea with a 0x2400 window (legacy-calibrated).
+namespace map_text {
+inline constexpr char kFillVertexBufferSymbol[] =
+    "_ZNK11CBitmapFont16FillVertexBufferEPvRK7CStringRK8CVector3IfES7_S7_fi";
+inline constexpr std::size_t kFillVertexBufferSearchSize = 0xb00;
+inline constexpr char kGenerateNamesAddNameAreaSymbol[] =
+    "_ZN18CGenerateNamesWork11AddNameAreaEPKiiiiiRK13SProvinceData";
+inline constexpr std::size_t kAddNameAreaSearchSize = 0x1250;
+inline constexpr char kAddNudgedNamesSymbol[] =
+    "_ZN22CCountryNameCollection14AddNudgedNamesER16CEU3GraphicalMapPPK9CProvinceiP11CBitmapFont";
+inline constexpr std::size_t kAddNudgedNamesSearchSize = 0x580;
+inline constexpr std::size_t kCurveTextSearchSize = 0x2400;
+inline constexpr char kCStringAppendCharSymbol[] = "_ZN7CStringpLEc";
+inline constexpr char kCStringAppendStringSymbol[] = "_ZN7CStringpLEPKc";
+inline constexpr char kCStringGetSizeSymbol[] = "_ZNK7CString7GetSizeEv";
+inline constexpr char kCStringIndexSymbol[] = "_ZNK7CStringixEj";
+inline constexpr char kCStringMutableIndexSymbol[] = "_ZN7CStringixEj";
+
+inline constexpr char kFillPreprocessingPattern[] =
+    "0F B6 00 48 8B 4C 24 68 4C 8B BC C1 00 01 00 00 4D 85 FF";
+inline constexpr std::array<std::uint8_t, 16> kFillPreprocessingOriginal{{
+    0x0F, 0xB6, 0x00, 0x48, 0x8B, 0x4C, 0x24, 0x68,
+    0x4C, 0x8B, 0xBC, 0xC1, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kFillPreprocessingContinuationOffset = 16;
+
+inline constexpr char kFillDrawingPattern[] =
+    "0F B6 00 49 8B 84 C4 00 01 00 00 48 85 C0";
+inline constexpr std::array<std::uint8_t, 11> kFillDrawingOriginal{{
+    0x0F, 0xB6, 0x00, 0x49, 0x8B, 0x84, 0xC4, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kFillDrawingContinuationOffset = 11;
+
+inline constexpr char kSpacingPattern[] =
+    "43 8A 44 25 00 88 85 78 FF FF FF 4C 89 F7 48 8D B5 78 FF FF FF";
+inline constexpr std::array<std::uint8_t, 11> kSpacingOriginal{{
+    0x43, 0x8A, 0x44, 0x25, 0x00, 0x88, 0x85, 0x78, 0xFF, 0xFF, 0xFF}};
+inline constexpr std::ptrdiff_t kSpacingContinuationOffset = 11;
+inline constexpr std::ptrdiff_t kSpacingFinalOffset = 0x5c;
+
+inline constexpr char kToUpperCallPattern[] = "E8 ? ? ? ? 31 C0 4C 8D 85 E8 FD FF FF";
+inline constexpr std::array<std::uint8_t, 5> kToUpperCallOriginal{{
+    0xE8, 0x25, 0xF2, 0x9E, 0x00}};
+
+inline constexpr char kNameGlyphPattern[] =
+    "0F B6 00 49 8B 84 C4 00 01 00 00 48 85 C0";
+inline constexpr std::array<std::uint8_t, 11> kNameGlyphOriginal{{
+    0x0F, 0xB6, 0x00, 0x49, 0x8B, 0x84, 0xC4, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kNameGlyphContinuationOffset = 11;
+
+inline constexpr char kCurveDrawingPattern[] = "0F B6 00 4D 8B 2C C4 4D 85 ED";
+inline constexpr std::array<std::uint8_t, 7> kCurveDrawingOriginal{{
+    0x0F, 0xB6, 0x00, 0x4D, 0x8B, 0x2C, 0xC4}};
+inline constexpr std::ptrdiff_t kCurveDrawingContinuationOffset = 7;
+
+inline constexpr char kCurveLengthCallsPattern[] =
+    "E8 ? ? ? ? 41 89 C7 4C 89 E7 E8 ? ? ? ? 48 89 85 30 FF FF FF";
+inline constexpr std::ptrdiff_t kCurveSecondCallOffset = 11;
+inline constexpr std::array<std::uint8_t, 5> kCurveFirstCallOriginal{{
+    0xE8, 0xC2, 0xD0, 0x9E, 0x00}};
+inline constexpr std::array<std::uint8_t, 5> kCurveSecondCallOriginal{{
+    0xE8, 0xB7, 0xD0, 0x9E, 0x00}};
+}  // namespace map_text
+
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64
