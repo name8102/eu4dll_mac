@@ -74,4 +74,70 @@ inline constexpr std::uint8_t kTextureSizeOriginal = 0x01;
 inline constexpr std::uint8_t kTextureSizeReplacement = 0x04;
 }  // namespace base
 
+// Text-layout (glyph measurement) facts. Calibrated against the Linux
+// 1.37.5 ELF; register/stack contracts live with the naked hooks in
+// text_layout/layout_patch.cpp and text_layout/ABI_NOTES.md. The Linux
+// glyph-table base (0x100) and index shift (0x6ac) are intentionally NOT
+// the macOS values (0xE8 / 0x6B0).
+namespace layout {
+inline constexpr std::ptrdiff_t kGlyphTableOffset = 0x100;
+
+inline constexpr char kGetHeightOfStringSymbol[] =
+    "_ZNK11CBitmapFont17GetHeightOfStringERK7CStringiiRK8CVector2IiEb";
+inline constexpr std::size_t kGetHeightOfStringSearchSize = 0x3f4;
+inline constexpr char kGetHeightOfStringPattern[] =
+    "0F B6 00 48 8B 84 C3 00 01 00 00 48 85 C0";
+inline constexpr std::array<std::uint8_t, 11> kGetHeightOfStringOriginal{{
+    0x0F, 0xB6, 0x00, 0x48, 0x8B, 0x84, 0xC3, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kGetHeightOfStringContinuationOffset = 11;
+
+inline constexpr char kGetWidthOfStringSymbol[] =
+    "_ZN11CBitmapFont16GetWidthOfStringEPKcib";
+inline constexpr std::size_t kGetWidthOfStringSearchSize = 0x257;
+inline constexpr char kGetWidthOfStringPattern[] =
+    "48 8B AC F7 00 01 00 00 48 85 ED";
+inline constexpr std::array<std::uint8_t, 8> kGetWidthOfStringOriginal{{
+    0x48, 0x8B, 0xAC, 0xF7, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kGetWidthOfStringContinuationOffset = 8;
+inline constexpr std::ptrdiff_t kGetWidthOfStringBypassOffset = 0x187;
+
+inline constexpr char kGetActualRequiredSizeSymbol[] =
+    "_ZNK11CBitmapFont21GetActualRequiredSizeERK7CStringiiR8CVector2IjERS3_IiEb";
+inline constexpr std::size_t kGetActualRequiredSizeSearchSize = 0x618;
+inline constexpr char kGetActualRequiredSizePattern[] =
+    "0F B6 00 48 8B 4C 24 28 48 8B AC C1 00 01 00 00 48 85 ED";
+inline constexpr std::array<std::uint8_t, 8> kGetActualRequiredSizeOriginal{{
+    0x0F, 0xB6, 0x00, 0x48, 0x8B, 0x4C, 0x24, 0x28}};
+inline constexpr std::ptrdiff_t kGetActualRequiredSizeContinuationOffset = 8;
+
+inline constexpr char kGetRequiredSizeSymbol[] =
+    "_ZNK11CBitmapFont15GetRequiredSizeERK7CStringRS0_iiR8CVector2IjEb";
+inline constexpr std::size_t kGetRequiredSizeSearchSize = 0x7bc;
+inline constexpr char kGetRequiredSizePattern[] =
+    "0F B6 00 49 8B AC C5 00 01 00 00 48 85 ED";
+inline constexpr std::array<std::uint8_t, 11> kGetRequiredSizeOriginal{{
+    0x0F, 0xB6, 0x00, 0x49, 0x8B, 0xAC, 0xC5, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kGetRequiredSizeContinuationOffset = 11;
+
+inline constexpr char kGetActualRealRequiredSizeActuallySymbol[] =
+    "_ZNK11CBitmapFont33GetActualRealRequiredSizeActuallyERK7CStringRS0_iiR8CVector2IjEbbbPiPb";
+inline constexpr std::size_t kGetActualRealRequiredSizeActuallySearchSize = 0xcce;
+inline constexpr char kGetActualRealRequiredSizeActuallyPattern[] =
+    "0F B6 00 49 8B AC C7 00 01 00 00 48 85 ED";
+inline constexpr std::array<std::uint8_t, 11>
+    kGetActualRealRequiredSizeActuallyOriginal{{
+        0x0F, 0xB6, 0x00, 0x49, 0x8B, 0xAC, 0xC7, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kGetActualRealRequiredSizeActuallyContinuationOffset = 11;
+
+// Wrapping gate inside GetActualRequiredSize: force the wrap branch.
+inline constexpr char kWrappingGatePattern[] =
+    "0F BF 45 06 0F 57 C9 F3 0F 2A C8 F3 0F 59 D9 "
+    "0F 2E 1C 25 ? ? ? ? 48 8B 54 24 18 75 21 7A 1F "
+    "0F 2E 54 24 34";
+inline constexpr std::array<std::uint8_t, 4> kWrappingGateOriginal{{
+    0x0F, 0xBF, 0x45, 0x06}};
+inline constexpr std::array<std::uint8_t, 4> kWrappingGateReplacement{{
+    0xEB, 0x15, 0x90, 0x90}};
+}  // namespace layout
+
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64

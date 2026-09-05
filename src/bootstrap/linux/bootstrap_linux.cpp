@@ -7,6 +7,8 @@
 #include "targets/eu4_1_37_5/linux_x86_64/base/base_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/profile.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/linux_x86_64/text_layout/layout_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -92,6 +94,30 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
     }
     log << " installed=" << installed.diagnostic.message
         << " trampolines=" << s_liveAllocator->LiveAllocationCount();
+
+    // 5. Migration-time gate: text layout on explicit opt-in only. Base
+    // stays the default so bisection between base-only and base+layout is
+    // always possible until final integration.
+    const char *enableLayout = std::getenv("EU4DLL_ENABLE_TEXT_LAYOUT");
+    if (enableLayout != nullptr && std::strcmp(enableLayout, "1") == 0) {
+        const auto layoutPreflight =
+            target::layout::PreflightLayout(memory, s_liveAllocator);
+        if (!layoutPreflight) {
+            error = "textLayout preflight failed: " +
+                    patch::FormatDiagnostic(layoutPreflight.diagnostic);
+            return false;
+        }
+        const auto layoutInstalled =
+            target::layout::InstallLayout(memory, s_liveAllocator);
+        if (!layoutInstalled) {
+            error = "textLayout install failed: " +
+                    patch::FormatDiagnostic(layoutInstalled.diagnostic);
+            return false;
+        }
+        log << " layout=" << layoutInstalled.diagnostic.message;
+    } else {
+        log << " layout=disabled";
+    }
 
     report = log.str();
     return true;

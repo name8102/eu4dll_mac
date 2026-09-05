@@ -18,3 +18,16 @@ target_include_directories(eu4dll_target_base_eu4_1_37_5_linux_x86_64 PUBLIC
 target_link_libraries(eu4dll_target_base_eu4_1_37_5_linux_x86_64 PUBLIC
         eu4dll_runtime
         eu4dll_target_profile_eu4_1_37_5_linux_x86_64)
+
+add_library(eu4dll_target_layout_eu4_1_37_5_linux_x86_64 STATIC
+        text_layout/layout_patch.cpp
+        text_layout/layout_patch.h)
+target_compile_features(eu4dll_target_layout_eu4_1_37_5_linux_x86_64 PUBLIC cxx_std_17)
+target_include_directories(eu4dll_target_layout_eu4_1_37_5_linux_x86_64 PUBLIC
+        ${PROJECT_SOURCE_DIR}/src)
+# The naked decoders reuse portable escaped_text marker/shift policy;
+# Linux glyph-table/index facts stay in the target.
+target_link_libraries(eu4dll_target_layout_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime
+        eu4dll_portable_features
+        eu4dll_target_profile_eu4_1_37_5_linux_x86_64)

@@ -24,5 +24,5 @@ __attribute__((constructor)) static void Eu4DllLinuxEntry() {
     }
     std::fprintf(stderr, "eu4dll_linux [bootstrap] %s\n", report.c_str());
     std::fprintf(stderr,
-                 "eu4dll_linux [bootstrap] supported EU4 ELF accepted; base installed.\n");
+                 "eu4dll_linux [bootstrap] supported EU4 ELF accepted.\n");
 }
