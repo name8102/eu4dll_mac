@@ -37,10 +37,10 @@ GetActualRequiredSize +0x20e/+0x227  (continuation load / rbp deref)
 - Re-verification: full 17-patch stack passes the old crash point, alive
   at ~2 min with active event processing, zero crash dumps.
 
-## Live gate status
+## Live gate status: PASSED (user-confirmed)
 
 - Install evidence (17 patches, accepted target, no failures): verified.
 - Crash-point regression: fixed and verified (no dumps where two
   deterministic dumps occurred before).
-- Visual/operation confirmation after the guard fix: PENDING user check
-  (Chinese display, events/tooltips/UI, save/load paths, time advance).
+- User confirmation: game enters successfully, time advance with no
+  crash, panels/buttons/tooltips all display normally.
