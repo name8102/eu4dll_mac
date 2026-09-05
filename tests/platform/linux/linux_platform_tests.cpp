@@ -53,10 +53,14 @@ void TestPermissionSafeWrite() {
         static_cast<eu4dll::patch::Address>(reinterpret_cast<std::uintptr_t>(page));
     std::string error;
     const std::uint8_t first[4] = {0x11, 0x22, 0x33, 0x44};
-    Require(memory.Write(address + 16, first, sizeof(first), error), error.c_str());
+    auto written = memory.Write(address + 16, first, sizeof(first));
+    Require(written.ok(), written.error.c_str());
+    Require(written.bytesWritten && written.protectionRestored,
+            "write must report bytes written and protections restored");
     Require(page[16] == 0x11 && page[19] == 0x44, "write must change bytes");
     const std::uint8_t second[4] = {0xAA, 0xBB, 0xCC, 0xDD};
-    Require(memory.Write(address + 16, second, sizeof(second), error), error.c_str());
+    written = memory.Write(address + 16, second, sizeof(second));
+    Require(written.ok(), written.error.c_str());
     Require(page[16] == 0xAA, "second write proves permissions were restored");
     std::uint8_t back[4] = {};
     Require(memory.Read(address + 16, back, sizeof(back), error), error.c_str());

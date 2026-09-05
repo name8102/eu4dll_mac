@@ -41,18 +41,22 @@ bool ByteBufferMemory::Read(Address address, std::uint8_t *buffer, std::size_t s
     return true;
 }
 
-bool ByteBufferMemory::Write(Address address, const std::uint8_t *data, std::size_t size,
-                             std::string &error) {
+WriteResult ByteBufferMemory::Write(Address address, const std::uint8_t *data,
+                                    std::size_t size) {
+    WriteResult result;
     if (data == nullptr || size == 0) {
-        error = "write requires non-null data and non-zero size";
-        return false;
+        result.error = "write requires non-null data and non-zero size";
+        return result;
     }
+    std::string error;
     const auto offset = OffsetOf(address, size, error);
     if (!offset) {
-        return false;
+        result.error = std::move(error);
+        return result;
     }
     std::memcpy(bytes_.data() + *offset, data, size);
-    return true;
+    result.bytesWritten = true;
+    return result;
 }
 
 bool ByteBufferMemory::ReadCString(Address address, std::size_t maxSize, std::string &value,

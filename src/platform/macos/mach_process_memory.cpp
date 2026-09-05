@@ -45,30 +45,36 @@ bool MachProcessMemory::Read(patch::Address address, std::uint8_t *buffer, std::
     return true;
 }
 
-bool MachProcessMemory::Write(patch::Address address, const std::uint8_t *data,
-                              std::size_t size, std::string &error) {
+patch::WriteResult MachProcessMemory::Write(patch::Address address,
+                                           const std::uint8_t *data,
+                                           std::size_t size) {
+    patch::WriteResult result;
     if (address == 0 || data == nullptr || size == 0) {
-        error = "Mach write requires an address, data, and non-zero size";
-        return false;
+        result.error = "Mach write requires an address, data, and non-zero size";
+        return result;
     }
     const mach_port_t task = mach_task_self();
     const auto destination = static_cast<mach_vm_address_t>(address);
-    kern_return_t result = mach_vm_protect(
+    kern_return_t kern = mach_vm_protect(
         task, destination, size, FALSE,
         VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY | VM_PROT_EXECUTE);
-    if (result != KERN_SUCCESS) {
-        error = MachError("mach_vm_protect(unprotect)", result, address);
-        return false;
+    if (kern != KERN_SUCCESS) {
+        result.error = MachError("mach_vm_protect(unprotect)", kern, address);
+        return result;
     }
 
     std::memcpy(reinterpret_cast<void *>(static_cast<std::uintptr_t>(address)), data, size);
+    result.bytesWritten = true;
 
-    result = mach_vm_protect(task, destination, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
-    if (result != KERN_SUCCESS) {
-        error = MachError("mach_vm_protect(reprotect)", result, address);
-        return false;
+    kern = mach_vm_protect(task, destination, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    if (kern != KERN_SUCCESS) {
+        // The payload is already live in the target; report that truthfully
+        // so transactions roll back instead of assuming nothing changed.
+        result.protectionRestored = false;
+        result.error = MachError("mach_vm_protect(reprotect)", kern, address);
+        return result;
     }
-    return true;
+    return result;
 }
 
 bool MachProcessMemory::ReadCString(patch::Address address, std::size_t maxSize,

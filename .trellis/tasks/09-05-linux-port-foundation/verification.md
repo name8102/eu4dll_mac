@@ -67,7 +67,51 @@ Result: configure succeeds on Linux with no Apple-only fatal error;
   intentionally changed: single-region adapters return their legacy region,
   and the manifest v1 path is backward compatible.
 
-## NOT performed: real-EU4 stability gate (requires the game)
+## Follow-up review fixes (before textLayout)
+
+A post-commit review of `0f873de` found four failure-path issues in
+`PatchBatch` / `Memory::Write` / trampoline lifetime. All fixed and
+re-verified; no general test expansion was requested or added beyond one
+targeted fault-injection regression test.
+
+- **P0 — no munmap of possibly-referenced trampolines.** `Commit()` now
+  tracks per-entry `mutationApplied` / `rollbackConfirmed` (read-back
+  verified) and releases a trampoline only when its site never mutated or
+  its restore is confirmed. Unconfirmed restores intentionally leak the
+  page to process exit and the diagnostic names the retained trampolines.
+- **P0 — `Write(false)` ≠ "nothing written".** `Memory::Write` now
+  returns `WriteResult{bytesWritten, protectionRestored, error}` on all
+  platforms (Linux/macOS/byte-buffer/file adapters updated). Rollback
+  membership follows `bytesWritten`, and restores are read-back confirmed.
+- **P1 — true process-lifetime allocator.** The bootstrap trampoline
+  allocator is now heap-allocated and intentionally leaked, so C++ static
+  destruction at exit can no longer unmap trampolines while EU4 global
+  destructors in other DSOs may still call patched functions.
+- **P2 — true ±2 GiB search.** The near allocator now parses
+  `/proc/self/maps` for unmapped gaps inside anchor ±2 GiB (nearest
+  first, 64-attempt budget) instead of the ±256 MiB truncated scan.
+- Regression test: `TestUnconfirmedRollbackRetainsTrampoline` (poisoned
+  write + dropped rollback ⇒ Rollback op, trampoline NOT released,
+  payload honestly still visible) plus the mirror
+  `TestConfirmedRollbackReleasesTrampoline` (clean failure ⇒ released, no
+  safe-path leak). These fault paths are unreachable in normal soak
+  testing.
+
+Re-verification after the fixes: clean rebuild, **15/15 tests pass**,
+preload smoke unchanged, and a second live EU4 run committed **4/4 base
+patches with 2 trampolines via the new maps-based allocator**, reaching
+`Running application` again with no patch/memory failures.
+
+## Stability-gate progress (user-confirmed 2026-09-05)
+
+- [x] Supported ELF SHA-256 + `EU4 v1.37.5.0 Inca` validated on the real binary
+- [x] All four base sites preflight uniquely (offline scan, exact bytes)
+- [x] Four mutations commit atomically on the real binary (2 trampolines)
+- [x] Game opens normally with base-only build (user-confirmed)
+- [x] Save/campaign loads into a running session (user-confirmed;
+      `game.log` shows ingame lobby arrival and event-option selection)
+- [ ] Explicit multi-panel + time-advance session and a timed base-only
+      soak remain open before textLayout migration begins
 
 The task's stability gate was not executed here because the supported Steam
 native Linux EU4 1.37.5 ELF is not present on this machine:

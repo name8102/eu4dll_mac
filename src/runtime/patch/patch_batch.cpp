@@ -44,7 +44,109 @@ struct StagedPatch {
     std::unordered_map<std::string, Address> continuations;
     MatchStatus match = MatchStatus::NotSearched;
     std::size_t matchCount = 0;
+    // Set from WriteResult::bytesWritten: a failed Write may still have
+    // mutated the target (e.g. protection-restore failure after memcpy), so
+    // rollback membership is decided by this flag, never by call success.
+    bool mutationApplied = false;
+    // Set only after read-back verification proves the original bytes are
+    // live again. A trampoline is released only when its entry never mutated
+    // or its restore is confirmed; otherwise it is intentionally leaked.
+    bool rollbackConfirmed = false;
+    bool trampolineReleased = false;
 };
+
+// Releases one staged trampoline iff no live game code can reference it:
+// the site was never mutated, or its restore was read-back confirmed.
+// A mutated-but-unconfirmed site may still jump at the trampoline, so the
+// page is intentionally leaked to process exit instead of munmap-SIGSEGV.
+void ReleaseEntryTrampoline(ExecutableCodeAllocator *allocator, StagedPatch &entry) {
+    if (allocator == nullptr || !entry.branch.has_value() || entry.trampolineReleased) {
+        return;
+    }
+    if (entry.mutationApplied && !entry.rollbackConfirmed) return;
+    ReleaseResolvedBranch(allocator, *entry.branch);
+    entry.trampolineReleased = true;
+}
+
+void ReleaseAllStagedTrampolines(ExecutableCodeAllocator *allocator,
+                                 std::vector<StagedPatch> &staged) {
+    for (auto &entry : staged) ReleaseEntryTrampoline(allocator, entry);
+}
+
+struct RollbackOutcome {
+    std::vector<std::string> unconfirmed;
+    std::string firstError;
+    std::size_t retainedTrampolines = 0;
+};
+
+// Restores originals for every applied entry in reverse order, verifies each
+// restore with read-back, then runs the conditional trampoline release over
+// the whole staged set (unapplied entries release unconditionally).
+RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocator,
+                               std::vector<StagedPatch> &staged) {
+    RollbackOutcome outcome;
+    for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
+        if (!it->mutationApplied || it->rollbackConfirmed) continue;
+        const auto rewritten =
+            memory.Write(it->mutationAddress, it->original.data(), it->original.size());
+        std::vector<std::uint8_t> current(it->original.size());
+        std::string readError;
+        const bool confirmed =
+            memory.Read(it->mutationAddress, current.data(), current.size(), readError) &&
+            current == it->original;
+        if (confirmed) {
+            it->rollbackConfirmed = true;
+        } else {
+            outcome.unconfirmed.push_back(it->description->feature);
+            if (outcome.firstError.empty()) {
+                if (!rewritten.ok()) {
+                    outcome.firstError = rewritten.error;
+                } else if (!readError.empty()) {
+                    outcome.firstError = readError;
+                } else {
+                    outcome.firstError =
+                        "restored bytes do not match the original snapshot";
+                }
+            }
+        }
+    }
+    ReleaseAllStagedTrampolines(allocator, staged);
+    for (const auto &entry : staged) {
+        if (entry.branch.has_value() && entry.mutationApplied &&
+            !entry.rollbackConfirmed && !entry.trampolineReleased) {
+            ++outcome.retainedTrampolines;
+        }
+    }
+    return outcome;
+}
+
+void AnnotateRollback(PatchDiagnostic &diagnostic, const RollbackOutcome &outcome,
+                      std::size_t appliedCount) {
+    if (outcome.unconfirmed.empty()) {
+        diagnostic.message += "; rollback restored " + std::to_string(appliedCount) +
+                              " applied site(s)";
+        return;
+    }
+    diagnostic.operation = PatchOperation::Rollback;
+    std::ostringstream stream;
+    stream << diagnostic.message << "; rollback UNCONFIRMED at [";
+    for (std::size_t i = 0; i < outcome.unconfirmed.size(); ++i) {
+        if (i != 0) stream << ", ";
+        stream << outcome.unconfirmed[i];
+    }
+    stream << "]: " << outcome.firstError;
+    if (outcome.retainedTrampolines > 0) {
+        stream << "; " << outcome.retainedTrampolines
+               << " trampoline(s) intentionally retained (fail-safe leak, not unmapped)";
+    }
+    diagnostic.message = stream.str();
+}
+
+std::size_t CountApplied(const std::vector<StagedPatch> &staged) {
+    return static_cast<std::size_t>(
+        std::count_if(staged.begin(), staged.end(),
+                      [](const StagedPatch &entry) { return entry.mutationApplied; }));
+}
 
 // Computes the mutation address and payload size without allocating.
 // For Call/Auto the width is determined by reading the live opcode.
@@ -230,26 +332,23 @@ BatchResult PatchBatch::Commit() {
     runtime.SetResolvedSiteProvider(siteProvider_);
 
     // Phase 1: locate + verify + resolve + snapshot (zero writes).
+    // Nothing is mutated yet, so any staged trampoline can be released
+    // unconditionally on the failure paths below.
     std::vector<StagedPatch> staged;
     staged.reserve(descriptions_.size());
-    std::vector<ResolvedBranch> ownedBranches;
     for (const auto &description : descriptions_) {
         if (description.feature.empty() || description.target.empty()) {
             result.diagnostic = Failure(
                 description.feature, description.target,
                 PatchOperation::ValidateDescription,
                 "patch description requires feature and target identifiers");
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            ReleaseAllStagedTrampolines(allocator_, staged);
             return result;
         }
         const auto preflight = runtime.Preflight(description);
         if (!preflight) {
             result.diagnostic = preflight.diagnostic;
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            ReleaseAllStagedTrampolines(allocator_, staged);
             return result;
         }
         const Address site = preflight.diagnostic.matchAddress;
@@ -264,9 +363,7 @@ BatchResult PatchBatch::Commit() {
             result.diagnostic.match = preflight.diagnostic.match;
             result.diagnostic.matchCount = preflight.diagnostic.matchCount;
             result.diagnostic.matchAddress = site;
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            ReleaseAllStagedTrampolines(allocator_, staged);
             return result;
         }
         StagedPatch entry;
@@ -293,9 +390,7 @@ BatchResult PatchBatch::Commit() {
                 result.diagnostic.matchCount = entry.matchCount;
                 result.diagnostic.matchAddress = site;
                 result.diagnostic.mutationAddress = mutationAddress;
-                for (const auto &owned : ownedBranches) {
-                    ReleaseResolvedBranch(allocator_, owned);
-                }
+                ReleaseAllStagedTrampolines(allocator_, staged);
                 return result;
             }
             std::int32_t relative = 0;
@@ -307,15 +402,12 @@ BatchResult PatchBatch::Commit() {
                 result.diagnostic.matchAddress = site;
                 result.diagnostic.mutationAddress = mutationAddress;
                 ReleaseResolvedBranch(allocator_, *resolved);
-                for (const auto &owned : ownedBranches) {
-                    ReleaseResolvedBranch(allocator_, owned);
-                }
+                ReleaseAllStagedTrampolines(allocator_, staged);
                 return result;
             }
             entry.payload = BuildBranchPayload(kind, relative, payloadSize);
             if (resolved->usesTrampoline) {
                 entry.branch = *resolved;
-                ownedBranches.push_back(*resolved);
             }
         }
         // Snapshot originals for race detection and rollback.
@@ -327,9 +419,7 @@ BatchResult PatchBatch::Commit() {
                         PatchOperation::VerifyOriginalBytes, error);
             result.diagnostic.matchAddress = site;
             result.diagnostic.mutationAddress = mutationAddress;
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            ReleaseAllStagedTrampolines(allocator_, staged);
             return result;
         }
         // Overlap rejection against already-staged writes.
@@ -342,20 +432,18 @@ BatchResult PatchBatch::Commit() {
                     "patch batch contains overlapping writes");
                 result.diagnostic.matchAddress = site;
                 result.diagnostic.mutationAddress = mutationAddress;
-                for (const auto &owned : ownedBranches) {
-                    ReleaseResolvedBranch(allocator_, owned);
-                }
+                ReleaseAllStagedTrampolines(allocator_, staged);
                 return result;
             }
         }
         staged.push_back(std::move(entry));
     }
 
-    // Phase 2: commit in deterministic order with rollback on failure.
-    std::vector<std::size_t> applied;
-    applied.reserve(staged.size());
+    // Phase 2: commit in deterministic order with verified rollback.
+    // Rollback membership follows WriteResult::bytesWritten, never the call's
+    // boolean outcome: a failed write may still have mutated the target.
     for (std::size_t index = 0; index < staged.size(); ++index) {
-        const auto &entry = staged[index];
+        auto &entry = staged[index];
         std::vector<std::uint8_t> current(entry.original.size());
         std::string error;
         if (!memory_.Read(entry.mutationAddress, current.data(), current.size(),
@@ -367,53 +455,29 @@ BatchResult PatchBatch::Commit() {
                 error.empty() ? "original bytes changed before commit" : error);
             result.diagnostic.matchAddress = entry.siteAddress;
             result.diagnostic.mutationAddress = entry.mutationAddress;
-            // Roll back anything already applied.
-            bool rollbackOk = true;
-            std::string rollbackError;
-            for (auto reverse = applied.rbegin(); reverse != applied.rend(); ++reverse) {
-                const auto &done = staged[*reverse];
-                if (!memory_.Write(done.mutationAddress, done.original.data(),
-                                   done.original.size(), rollbackError)) {
-                    rollbackOk = false;
-                }
-            }
-            if (!rollbackOk) {
-                result.diagnostic.operation = PatchOperation::Rollback;
-                result.diagnostic.message +=
-                    "; rollback failed: " + rollbackError;
-            }
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            const auto outcome = RollbackStaged(memory_, allocator_, staged);
+            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
             return result;
         }
-        if (!memory_.Write(entry.mutationAddress, entry.payload.data(),
-                           entry.payload.size(), error)) {
+        const auto written = memory_.Write(entry.mutationAddress, entry.payload.data(),
+                                           entry.payload.size());
+        entry.mutationApplied = written.bytesWritten;
+        if (!written.ok()) {
             result.diagnostic =
                 Failure(entry.description->feature, entry.description->target,
-                        PatchOperation::WriteMutation, error);
+                        PatchOperation::WriteMutation, written.error);
+            if (written.bytesWritten && written.protectionRestored) {
+                result.diagnostic.message += " (payload is live in the target)";
+            } else if (written.bytesWritten) {
+                result.diagnostic.message +=
+                    " (payload is live but page protections were not restored)";
+            }
             result.diagnostic.matchAddress = entry.siteAddress;
             result.diagnostic.mutationAddress = entry.mutationAddress;
-            bool rollbackOk = true;
-            std::string rollbackError;
-            for (auto reverse = applied.rbegin(); reverse != applied.rend(); ++reverse) {
-                const auto &done = staged[*reverse];
-                if (!memory_.Write(done.mutationAddress, done.original.data(),
-                                   done.original.size(), rollbackError)) {
-                    rollbackOk = false;
-                }
-            }
-            if (!rollbackOk) {
-                result.diagnostic.operation = PatchOperation::Rollback;
-                result.diagnostic.message +=
-                    "; rollback failed: " + rollbackError;
-            }
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            const auto outcome = RollbackStaged(memory_, allocator_, staged);
+            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
             return result;
         }
-        applied.push_back(index);
     }
 
     // Phase 3: optional hook optimization (atomic with the batch).
@@ -429,23 +493,8 @@ BatchResult PatchBatch::Commit() {
             entry.description->feature, entry.description->target);
         if (!optimized.success) {
             result.diagnostic = std::move(optimized);
-            bool rollbackOk = true;
-            std::string rollbackError;
-            for (auto reverse = applied.rbegin(); reverse != applied.rend(); ++reverse) {
-                const auto &done = staged[*reverse];
-                if (!memory_.Write(done.mutationAddress, done.original.data(),
-                                   done.original.size(), rollbackError)) {
-                    rollbackOk = false;
-                }
-            }
-            if (!rollbackOk) {
-                result.diagnostic.operation = PatchOperation::Rollback;
-                result.diagnostic.message +=
-                    "; rollback failed: " + rollbackError;
-            }
-            for (const auto &owned : ownedBranches) {
-                ReleaseResolvedBranch(allocator_, owned);
-            }
+            const auto outcome = RollbackStaged(memory_, allocator_, staged);
+            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
             return result;
         }
     }

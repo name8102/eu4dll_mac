@@ -421,10 +421,11 @@ bool MachOFileMemory::ReadCString(patch::Address address, std::size_t maxSize,
     return false;
 }
 
-bool MachOFileMemory::Write(patch::Address, const std::uint8_t *, std::size_t,
-                            std::string &error) {
-    error = "read-only Mach-O mapping cannot be mutated";
-    return false;
+patch::WriteResult MachOFileMemory::Write(patch::Address, const std::uint8_t *,
+                                          std::size_t) {
+    patch::WriteResult result;
+    result.error = "read-only Mach-O mapping cannot be mutated";
+    return result;
 }
 
 } // namespace eu4dll::platform::macos

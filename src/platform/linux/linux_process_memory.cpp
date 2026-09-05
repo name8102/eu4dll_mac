@@ -160,16 +160,18 @@ bool LinuxProcessMemory::Read(patch::Address address, std::uint8_t *buffer,
     return false;
 }
 
-bool LinuxProcessMemory::Write(patch::Address address, const std::uint8_t *data,
-                               std::size_t size, std::string &error) {
+patch::WriteResult LinuxProcessMemory::Write(patch::Address address,
+                                           const std::uint8_t *data,
+                                           std::size_t size) {
+    patch::WriteResult result;
     if (address == 0 || data == nullptr || size == 0) {
-        error = "Linux write requires an address, data, and non-zero size";
-        return false;
+        result.error = "Linux write requires an address, data, and non-zero size";
+        return result;
     }
     const long pageSizeLong = sysconf(_SC_PAGESIZE);
     if (pageSizeLong <= 0) {
-        error = "sysconf(_SC_PAGESIZE) failed";
-        return false;
+        result.error = "sysconf(_SC_PAGESIZE) failed";
+        return result;
     }
     const auto pageSize = static_cast<std::size_t>(pageSizeLong);
     const auto raw = static_cast<std::uintptr_t>(address);
@@ -180,47 +182,54 @@ bool LinuxProcessMemory::Write(patch::Address address, const std::uint8_t *data,
         uintptr_t page = 0;
         int protection = 0;
     };
+    const auto restore = [&](const std::vector<PageState> &pages,
+                             const PageState *skip) {
+        bool ok = true;
+        for (auto it = pages.rbegin(); it != pages.rend(); ++it) {
+            if (skip != nullptr && it->page == skip->page) continue;
+            if (mprotect(reinterpret_cast<void *>(it->page), pageSize,
+                         it->protection) != 0) {
+                ok = false;
+            }
+        }
+        return ok;
+    };
     std::vector<PageState> pages;
     for (uintptr_t page = begin; page < end; page += pageSize) {
         int protection = 0;
         if (!QueryProtection(page, protection)) {
-            error = "Linux write could not query page protection; refusing to mutate";
-            for (auto it = pages.rbegin(); it != pages.rend(); ++it) {
-                mprotect(reinterpret_cast<void *>(it->page), pageSize, it->protection);
-            }
-            return false;
+            result.error =
+                "Linux write could not query page protection; refusing to mutate";
+            if (!restore(pages, nullptr)) result.protectionRestored = false;
+            return result;
         }
         pages.push_back({page, protection});
         if (mprotect(reinterpret_cast<void *>(page), pageSize,
                      protection | PROT_WRITE) != 0) {
-            error = std::string("mprotect(add-write) failed: ") + std::strerror(errno);
-            for (auto it = pages.rbegin(); it != pages.rend(); ++it) {
-                if (it->page == page) continue;
-                mprotect(reinterpret_cast<void *>(it->page), pageSize, it->protection);
-            }
-            return false;
+            result.error =
+                std::string("mprotect(add-write) failed: ") + std::strerror(errno);
+            const PageState failed{page, protection};
+            if (!restore(pages, &failed)) result.protectionRestored = false;
+            return result;
         }
     }
 
     std::memcpy(reinterpret_cast<void *>(raw), data, size);
+    result.bytesWritten = true;
 #if defined(__x86_64__) || defined(__aarch64__)
     __builtin___clear_cache(reinterpret_cast<char *>(raw),
                             reinterpret_cast<char *>(raw + size));
 #endif
 
-    bool restoreOk = true;
-    std::string restoreError;
-    for (auto it = pages.rbegin(); it != pages.rend(); ++it) {
-        if (mprotect(reinterpret_cast<void *>(it->page), pageSize, it->protection) != 0) {
-            restoreOk = false;
-            restoreError = std::strerror(errno);
-        }
+    if (!restore(pages, nullptr)) {
+        // The payload is already live in the target; report that truthfully
+        // so transactions roll back instead of assuming nothing changed.
+        result.protectionRestored = false;
+        result.error = std::string("mprotect(restore) failed: ") +
+                       std::strerror(errno);
+        return result;
     }
-    if (!restoreOk) {
-        error = std::string("mprotect(restore) failed: ") + restoreError;
-        return false;
-    }
-    return true;
+    return result;
 }
 
 bool LinuxProcessMemory::ReadCString(patch::Address address, std::size_t maxSize,

@@ -60,8 +60,8 @@ public:
               std::string &error) const override;
     bool ReadCString(patch::Address address, std::size_t maxSize, std::string &output,
                      std::string &error) const override;
-    bool Write(patch::Address address, const std::uint8_t *data, std::size_t size,
-               std::string &error) override;
+    patch::WriteResult Write(patch::Address address, const std::uint8_t *data,
+                             std::size_t size) override;
 
 private:
     const MachOFile &file_;

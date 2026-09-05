@@ -86,7 +86,7 @@ int main() {
     eu4dll::platform::macos::MachOFileMemory memory(*file);
     Require(memory.ResolveSymbol("_required", error).has_value(),
             "Memory adapter symbol lookup failed");
-    Require(!memory.Write(0, data, sizeof(data), error),
+    Require(!memory.Write(0, data, sizeof(data)).ok(),
             "Mach-O file mapping must remain read-only");
     return 0;
 }

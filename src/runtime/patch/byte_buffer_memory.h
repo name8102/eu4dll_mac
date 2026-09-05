@@ -16,8 +16,8 @@ public:
 
     bool Read(Address address, std::uint8_t *buffer, std::size_t size,
               std::string &error) const override;
-    bool Write(Address address, const std::uint8_t *data, std::size_t size,
-               std::string &error) override;
+    WriteResult Write(Address address, const std::uint8_t *data,
+                      std::size_t size) override;
     bool ReadCString(Address address, std::size_t maxSize, std::string &value,
                      std::string &error) const override;
     std::optional<MemoryRegion> MainModule(std::string &error) const override;

@@ -76,18 +76,22 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
         }
     }
 
-    // 4. Atomically install base. Trampoline pages must outlive this call,
-    // so the install uses a process-lifetime allocator whose destructor never
-    // runs before exit.
-    static linux_platform::LinuxNearAllocator s_liveAllocator;
-    const auto installed = target::base::InstallBase(memory, &s_liveAllocator);
+    // 4. Atomically install base. Trampoline pages must outlive this call
+    // AND the C++ static-destruction phase at process exit: EU4 global
+    // destructors in other DSOs may still call patched functions after this
+    // DSO's destructors would run, and ~LinuxNearAllocator munmaps every
+    // trampoline. The allocator is therefore intentionally leaked; the OS
+    // reclaims the pages with the address space. A future unload/unpatch
+    // protocol must unpatch sites and verify restoration before releasing.
+    static auto *s_liveAllocator = new linux_platform::LinuxNearAllocator();
+    const auto installed = target::base::InstallBase(memory, s_liveAllocator);
     if (!installed) {
         error = "base install failed: " +
                 patch::FormatDiagnostic(installed.diagnostic);
         return false;
     }
     log << " installed=" << installed.diagnostic.message
-        << " trampolines=" << s_liveAllocator.LiveAllocationCount();
+        << " trampolines=" << s_liveAllocator->LiveAllocationCount();
 
     report = log.str();
     return true;

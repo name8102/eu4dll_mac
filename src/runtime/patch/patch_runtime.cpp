@@ -362,8 +362,16 @@ PatchDiagnostic PatchRuntime::ApplyMutation(Address address, const Mutation &mut
 
     std::string error;
     diagnostic.operation = PatchOperation::WriteMutation;
-    if (!memory_.Write(*mutationAddress, payload.data(), payload.size(), error)) {
-        diagnostic.message = error;
+    const auto written = memory_.Write(*mutationAddress, payload.data(), payload.size());
+    if (!written.ok()) {
+        diagnostic.message = written.error;
+        if (written.bytesWritten) {
+            diagnostic.message +=
+                " (payload is live in the target despite the failure)";
+        }
+        if (!written.protectionRestored) {
+            diagnostic.message += " (page protections were not restored)";
+        }
         return diagnostic;
     }
     diagnostic.success = true;
@@ -418,8 +426,14 @@ PatchDiagnostic PatchRuntime::OptimizeIndirectBranches(Address hookAddress,
         std::int32_t relative = 0;
         if (FitsRel32(instruction, branchTarget, relative)) {
             const auto payload = RelativeMutation(indirectCall ? 0xE8 : 0xE9, relative, 6);
-            if (!memory_.Write(instruction, payload.data(), payload.size(), error)) {
-                diagnostic.message = error;
+            const auto written =
+                memory_.Write(instruction, payload.data(), payload.size());
+            if (!written.ok()) {
+                diagnostic.message = written.error;
+                if (written.bytesWritten) {
+                    diagnostic.message +=
+                        " (payload is live in the target despite the failure)";
+                }
                 return diagnostic;
             }
             std::copy(payload.begin(), payload.end(), code.begin() + index);

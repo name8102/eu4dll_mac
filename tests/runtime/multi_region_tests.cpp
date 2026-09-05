@@ -42,12 +42,13 @@ public:
         return false;
     }
 
-    bool Write(Address address, const std::uint8_t *data, std::size_t size,
-               std::string &error) override {
-        if (Contains(first_, address, size)) return first_.Write(address, data, size, error);
-        if (Contains(second_, address, size)) return second_.Write(address, data, size, error);
-        error = "write spans unmapped gap";
-        return false;
+    eu4dll::patch::WriteResult Write(Address address, const std::uint8_t *data,
+                                      std::size_t size) override {
+        if (Contains(first_, address, size)) return first_.Write(address, data, size);
+        if (Contains(second_, address, size)) return second_.Write(address, data, size);
+        eu4dll::patch::WriteResult result;
+        result.error = "write spans unmapped gap";
+        return result;
     }
 
     bool ReadCString(Address address, std::size_t maxSize, std::string &value,
