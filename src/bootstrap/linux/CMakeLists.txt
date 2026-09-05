@@ -9,4 +9,5 @@ target_link_libraries(eu4dll_bootstrap_linux PRIVATE
         eu4dll_platform_linux
         eu4dll_target_profile_eu4_1_37_5_linux_x86_64
         eu4dll_target_base_eu4_1_37_5_linux_x86_64
-        eu4dll_target_layout_eu4_1_37_5_linux_x86_64)
+        eu4dll_target_layout_eu4_1_37_5_linux_x86_64
+        eu4dll_target_main_text_eu4_1_37_5_linux_x86_64)

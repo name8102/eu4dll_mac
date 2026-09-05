@@ -8,6 +8,7 @@
 #include "targets/eu4_1_37_5/linux_x86_64/profile.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 #include "targets/eu4_1_37_5/linux_x86_64/text_layout/layout_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/main_text/main_text_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 
 #include <cstdio>
@@ -95,11 +96,13 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
     log << " installed=" << installed.diagnostic.message
         << " trampolines=" << s_liveAllocator->LiveAllocationCount();
 
-    // 5. Migration-time gate: text layout on explicit opt-in only. Base
-    // stays the default so bisection between base-only and base+layout is
-    // always possible until final integration.
+    // 5. Migration-time gates: text layout on explicit opt-in, main text on
+    // top of it. Base stays the default so bisection between feature levels
+    // is always possible until final integration.
     const char *enableLayout = std::getenv("EU4DLL_ENABLE_TEXT_LAYOUT");
-    if (enableLayout != nullptr && std::strcmp(enableLayout, "1") == 0) {
+    const bool layoutOn =
+        enableLayout != nullptr && std::strcmp(enableLayout, "1") == 0;
+    if (layoutOn) {
         const auto layoutPreflight =
             target::layout::PreflightLayout(memory, s_liveAllocator);
         if (!layoutPreflight) {
@@ -117,6 +120,34 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
         log << " layout=" << layoutInstalled.diagnostic.message;
     } else {
         log << " layout=disabled";
+    }
+
+    const char *enableMainText = std::getenv("EU4DLL_ENABLE_MAIN_TEXT");
+    const bool mainTextOn =
+        enableMainText != nullptr && std::strcmp(enableMainText, "1") == 0;
+    if (mainTextOn) {
+        if (!layoutOn) {
+            error = "mainText install failed: EU4DLL_ENABLE_MAIN_TEXT=1 "
+                    "requires EU4DLL_ENABLE_TEXT_LAYOUT=1";
+            return false;
+        }
+        const auto mainPreflight =
+            target::main_text::PreflightMainText(memory, s_liveAllocator);
+        if (!mainPreflight) {
+            error = "mainText preflight failed: " +
+                    patch::FormatDiagnostic(mainPreflight.diagnostic);
+            return false;
+        }
+        const auto mainInstalled =
+            target::main_text::InstallMainText(memory, s_liveAllocator);
+        if (!mainInstalled) {
+            error = "mainText install failed: " +
+                    patch::FormatDiagnostic(mainInstalled.diagnostic);
+            return false;
+        }
+        log << " mainText=" << mainInstalled.diagnostic.message;
+    } else {
+        log << " mainText=disabled";
     }
 
     report = log.str();

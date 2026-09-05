@@ -140,4 +140,40 @@ inline constexpr std::array<std::uint8_t, 4> kWrappingGateReplacement{{
     0xEB, 0x15, 0x90, 0x90}};
 }  // namespace layout
 
+// Main-text (RenderToScreen) facts. Three jump hooks inside one function
+// (bound 0x218b); the preprocessing hook stages decoded bytes into an
+// absolute game buffer (ET_EXEC target, address stable) and publishes the
+// current character for the wrapping hook. No tooltip/map/input facts here.
+namespace main_text {
+inline constexpr char kRenderToScreenSymbol[] =
+    "_ZN11CBitmapFont14RenderToScreenERK7CString14FontFormatting22EFontVerticalAlignment"
+    "15EGuiOrientationPK8CMatrix4IfE5CRectIiE8CVector2IiEPSD_ib";
+inline constexpr std::size_t kRenderToScreenSearchSize = 0x218b;
+// Absolute game-data staging buffer (non-PIE executable: stable address).
+inline constexpr std::uint32_t kPreprocessingStageAddress = 0x3345191;
+// Drawing-loop object base: [rbx + disp32].
+inline constexpr std::uint32_t kDrawingObjectDisplacement = 0x333d450;
+
+inline constexpr char kPreprocessingPattern[] =
+    "41 0F B6 0C 2E 80 BC 24 18 22 00 00 00 74 4F";
+inline constexpr std::array<std::uint8_t, 5> kPreprocessingOriginal{{
+    0x41, 0x0F, 0xB6, 0x0C, 0x2E}};
+inline constexpr std::ptrdiff_t kPreprocessingContinuationOffset = 5;
+inline constexpr std::ptrdiff_t kPreprocessingBypassOffset = 0x5e;
+
+inline constexpr char kWrappingPattern[] =
+    "66 83 7D 06 00 0F 84 ? ? ? ? 80 3D ? ? ? ? 00";
+inline constexpr std::array<std::uint8_t, 5> kWrappingOriginal{{
+    0x66, 0x83, 0x7D, 0x06, 0x00}};
+inline constexpr std::ptrdiff_t kWrappingContinuationOffset = 5;
+inline constexpr std::ptrdiff_t kWrappingBypassOffset = 0x191;
+
+inline constexpr char kDrawingPattern[] =
+    "0F B6 83 50 D4 33 03 80 BC 24 18 22 00 00 00 0F 84";
+inline constexpr std::array<std::uint8_t, 7> kDrawingOriginal{{
+    0x0F, 0xB6, 0x83, 0x50, 0xD4, 0x33, 0x03}};
+inline constexpr std::ptrdiff_t kDrawingContinuationOffset = 7;
+inline constexpr std::ptrdiff_t kDrawingBypassOffset = 0x1aa;
+}  // namespace main_text
+
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64

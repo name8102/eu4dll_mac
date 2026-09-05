@@ -74,6 +74,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_target_profile_eu4_1_37_5_linux_x86_64
             eu4dll_target_base_eu4_1_37_5_linux_x86_64
             eu4dll_target_layout_eu4_1_37_5_linux_x86_64
+            eu4dll_target_main_text_eu4_1_37_5_linux_x86_64
             eu4dll_bootstrap_linux
             eu4dll_linux)
         assert_target_exists(${required_target})
@@ -142,6 +143,7 @@ else()
             eu4dll_patch_manifest_tests
             eu4dll_linux_target_tests
             eu4dll_linux_text_layout_tests
+            eu4dll_linux_main_text_tests
             eu4dll_linux_platform_tests
             eu4dll_linux)
 endif()
