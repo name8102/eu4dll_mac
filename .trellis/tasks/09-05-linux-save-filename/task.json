@@ -1,0 +1,8 @@
+{
+  "id": "linux-save-filename", "name": "linux-save-filename", "title": "Port Linux save-file name handling",
+  "description": "Port save-file naming/filename encoding behavior from the canonical implementation to Linux, researching Linux target facts where the old prototype has no complete dedicated probe.",
+  "status": "planning", "dev_type": "feature", "scope": "Linux save filename behavior and target hooks", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
+  "relatedFiles": ["src/saveFileName.cpp", "src/targets/eu4_1_37_5/linux_x86_64/", "src/platform/linux/"],
+  "notes": "Do not assume macOS offsets or invent a legacy Linux probe.",
+  "meta": {"depends_on": ["09-05-linux-input-ime", "09-05-linux-localization-utf8"], "legacy_evidence": null}
+}

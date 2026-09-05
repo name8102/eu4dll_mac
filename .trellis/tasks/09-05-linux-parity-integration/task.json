@@ -1,0 +1,8 @@
+{
+  "id": "linux-parity-integration", "name": "linux-parity-integration", "title": "Finalize Linux feature parity and stability",
+  "description": "Audit remaining canonical/legacy Linux behavior, integrate all migrated feature gates, and complete final stability/parity without speculative hooks.",
+  "status": "planning", "dev_type": "feature", "scope": "Linux final parity matrix, full-stack integration, long soak, shutdown and documentation", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
+  "relatedFiles": ["CMakeLists.txt", "src/bootstrap/linux/", "src/platform/linux/", "src/targets/eu4_1_37_5/linux_x86_64/", "tool/", "docs/"],
+  "notes": "Integration/audit task, not a dumping ground for unreviewed features.",
+  "meta": {"depends_on": ["09-05-linux-main-text", "09-05-linux-tooltip-text", "09-05-linux-localization-utf8", "09-05-linux-map-text", "09-05-linux-text3d", "09-05-linux-input-ime", "09-05-linux-clipboard-paste", "09-05-linux-pinyin-search", "09-05-linux-save-filename"]}
+}

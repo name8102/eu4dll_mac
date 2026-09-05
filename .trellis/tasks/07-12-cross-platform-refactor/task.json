@@ -29,17 +29,11 @@
     "07-12-diagnostics-verification",
     "07-12-install-time-patch-manifest",
     "07-12-refactor-macos-installer",
-    "09-05-linux-port-foundation"
+    "09-05-linux-port-foundation",
+    "09-05-linux-feature-migration"
   ],
   "parent": null,
-  "relatedFiles": [
-    "CMakeLists.txt",
-    "library.cpp",
-    "library.h",
-    "src/",
-    "tests/",
-    ".trellis/spec/project/"
-  ],
-  "notes": "Planning only. Implement as buildable vertical slices; do not claim Windows or Linux runtime support without target fixtures and platform verification.",
+  "relatedFiles": ["CMakeLists.txt", "library.cpp", "library.h", "src/", "tests/", ".trellis/spec/project/"],
+  "notes": "Planning only. Implement as buildable vertical slices; do not claim platform runtime support without target fixtures and platform verification.",
   "meta": {}
 }

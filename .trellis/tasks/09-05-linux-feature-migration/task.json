@@ -1,0 +1,43 @@
+{
+  "id": "linux-feature-migration",
+  "name": "linux-feature-migration",
+  "title": "Complete Linux feature migration",
+  "description": "Migrate all remaining eu4dll functionality to the canonical refactored Linux x86-64 target in independently verifiable vertical slices, using the legacy Linux port as binary/ABI evidence rather than a codebase to merge.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "Linux text layout, UI text, tooltip/button text, UTF-8 localization, map text, text3D, input/IME, clipboard paste, pinyin/search, save-file naming, final parity and stability",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-05-linux-text-layout",
+    "09-05-linux-main-text",
+    "09-05-linux-tooltip-text",
+    "09-05-linux-localization-utf8",
+    "09-05-linux-map-text",
+    "09-05-linux-text3d",
+    "09-05-linux-input-ime",
+    "09-05-linux-clipboard-paste",
+    "09-05-linux-pinyin-search",
+    "09-05-linux-save-filename",
+    "09-05-linux-parity-integration"
+  ],
+  "parent": "07-12-cross-platform-refactor",
+  "relatedFiles": ["src/features/", "src/runtime/", "src/platform/linux/", "src/targets/eu4_1_37_5/linux_x86_64/", "src/bootstrap/linux/", "tool/", "docs/"],
+  "notes": "Prerequisite: 09-05-linux-port-foundation must remain stable. Migrate facts, not the legacy framework. Keep each feature independently gateable during migration; mapText is a dedicated high-risk stage.",
+  "meta": {
+    "legacy_repo": "name8102/eu4dll_linux",
+    "legacy_ref": "linux-port",
+    "legacy_commit": "102241a9116ce521170c75ce80e303698c4c427f",
+    "target": "EU4 1.37.5.0 Inca native Linux x86-64"
+  }
+}
