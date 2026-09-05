@@ -107,3 +107,9 @@ The local final source rebuild passes 23 CTests and the system-SDL actual ELF
 probe. Its library digest is `4095febe93d9d82096cac0e846eef8bfc54ae0ac3508958312c2ba223dc0c776`;
 the already user-accepted installed library remains the earlier recorded digest.
 Cloud results and release URL will be recorded after the first run completes.
+
+First cloud run `33953803936` passed Linux but exposed an obsolete Memory::Write
+override in the macOS read-only binary probe. Updated it to WriteResult while
+retaining its unconditional no-write behavior. Linux cloud package from that
+run also passed the local actual-game ELF probe. Retrying both platforms with
+the corrected macOS test adapter before publishing.

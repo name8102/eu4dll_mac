@@ -69,10 +69,9 @@ public:
         return true;
     }
 
-    bool Write(eu4dll::patch::Address, const std::uint8_t *, std::size_t,
-               std::string &error) override {
-        error = "read-only binary probe";
-        return false;
+    eu4dll::patch::WriteResult Write(eu4dll::patch::Address, const std::uint8_t *,
+                                    std::size_t) override {
+        return {false, true, "read-only binary probe"};
     }
 
     bool ReadCString(eu4dll::patch::Address address, std::size_t maxSize,

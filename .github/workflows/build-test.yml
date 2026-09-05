@@ -27,7 +27,7 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build Project
-        run: cmake --build build --config Release --target eu4dll_tests eu4dll_manifest_tool
+        run: cmake --build build --config Release --parallel 4 --target eu4dll_tests eu4dll_manifest_tool
 
       - name: Run Tests
         run: ctest --test-dir build --output-on-failure
