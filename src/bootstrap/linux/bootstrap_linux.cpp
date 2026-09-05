@@ -9,6 +9,7 @@
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 #include "targets/eu4_1_37_5/linux_x86_64/text_layout/layout_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/main_text/main_text_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/tooltip_text/tooltip_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 
 #include <cstdio>
@@ -148,6 +149,34 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
         log << " mainText=" << mainInstalled.diagnostic.message;
     } else {
         log << " mainText=disabled";
+    }
+
+    const char *enableTooltip = std::getenv("EU4DLL_ENABLE_TOOLTIP_TEXT");
+    const bool tooltipOn =
+        enableTooltip != nullptr && std::strcmp(enableTooltip, "1") == 0;
+    if (tooltipOn) {
+        if (!mainTextOn) {
+            error = "tooltip install failed: EU4DLL_ENABLE_TOOLTIP_TEXT=1 "
+                    "requires EU4DLL_ENABLE_MAIN_TEXT=1";
+            return false;
+        }
+        const auto tooltipPreflight =
+            target::tooltip::PreflightTooltip(memory, s_liveAllocator);
+        if (!tooltipPreflight) {
+            error = "tooltip preflight failed: " +
+                    patch::FormatDiagnostic(tooltipPreflight.diagnostic);
+            return false;
+        }
+        const auto tooltipInstalled =
+            target::tooltip::InstallTooltip(memory, s_liveAllocator);
+        if (!tooltipInstalled) {
+            error = "tooltip install failed: " +
+                    patch::FormatDiagnostic(tooltipInstalled.diagnostic);
+            return false;
+        }
+        log << " tooltip=" << tooltipInstalled.diagnostic.message;
+    } else {
+        log << " tooltip=disabled";
     }
 
     report = log.str();

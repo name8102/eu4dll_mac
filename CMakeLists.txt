@@ -71,6 +71,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_target_base_eu4_1_37_5_linux_x86_64
             eu4dll_target_layout_eu4_1_37_5_linux_x86_64
             eu4dll_target_main_text_eu4_1_37_5_linux_x86_64
+            eu4dll_target_tooltip_eu4_1_37_5_linux_x86_64
             cpp-pinyin
             dl)
 

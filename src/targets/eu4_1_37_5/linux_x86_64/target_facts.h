@@ -176,4 +176,35 @@ inline constexpr std::ptrdiff_t kDrawingContinuationOffset = 7;
 inline constexpr std::ptrdiff_t kDrawingBypassOffset = 0x1aa;
 }  // namespace main_text
 
+// Tooltip/button (RenderToTexture) facts. Three jump hooks inside one
+// function (bound 0x311c) plus a dlsym-resolved CString::operator+=(char)
+// used by the preprocessing hook. Only the wrapping site has a bypass;
+// preprocessing/drawing always rejoin at their single return.
+namespace tooltip {
+inline constexpr char kRenderToTextureSymbol[] =
+    "_ZN11CBitmapFont15RenderToTextureEP21GfxDeferredContextGFXP10TextureGFXR8CVector2IiES6_"
+    "RK7CStringS3_jjRKS4_IjE14FontFormattingbjbb";
+inline constexpr char kCStringAppendCharSymbol[] = "_ZN7CStringpLEc";
+inline constexpr std::size_t kRenderToTextureSearchSize = 0x311c;
+
+inline constexpr char kPreprocessingPattern[] =
+    "0F B6 00 48 8B 4C 24 38 48 8B AC C1 00 01 00 00 48 85 ED";
+inline constexpr std::array<std::uint8_t, 8> kPreprocessingOriginal{{
+    0x0F, 0xB6, 0x00, 0x48, 0x8B, 0x4C, 0x24, 0x38}};
+inline constexpr std::ptrdiff_t kPreprocessingContinuationOffset = 16;
+
+inline constexpr char kWrappingPattern[] =
+    "66 83 7D 06 00 74 0D 40 8A AC 24 00 29 00 00";
+inline constexpr std::array<std::uint8_t, 5> kWrappingOriginal{{
+    0x66, 0x83, 0x7D, 0x06, 0x00}};
+inline constexpr std::ptrdiff_t kWrappingContinuationOffset = 5;
+inline constexpr std::ptrdiff_t kWrappingBypassOffset = 0x14;
+
+inline constexpr char kDrawingPattern[] =
+    "0F B6 00 4D 8B 9C C5 00 01 00 00 4D 85 DB";
+inline constexpr std::array<std::uint8_t, 11> kDrawingOriginal{{
+    0x0F, 0xB6, 0x00, 0x4D, 0x8B, 0x9C, 0xC5, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kDrawingContinuationOffset = 11;
+}  // namespace tooltip
+
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64
