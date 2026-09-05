@@ -277,6 +277,11 @@ public:
     PoisonedMemory(std::vector<std::uint8_t> bytes, Address base)
         : inner_(std::move(bytes), base) {}
 
+    // When set, rollback-attempt writes (call #3+) still copy the original
+    // bytes back but report protection-restore failure: read-back confirms
+    // the bytes while the permissions caveat must stay visible.
+    void setRestoreUnprotected(bool value) { restoreUnprotected_ = value; }
+
     bool Read(Address address, std::uint8_t *buffer, std::size_t size,
               std::string &error) const override {
         return inner_.Read(address, buffer, size, error);
@@ -292,6 +297,15 @@ public:
             result.bytesWritten = true;
             result.protectionRestored = false;
             result.error = "injected protection-restore failure";
+            return result;
+        }
+        if (restoreUnprotected_) {
+            auto stored = inner_.Write(address, data, size);
+            Require(stored.ok(), "caveat setup must store the restore");
+            WriteResult result;
+            result.bytesWritten = true;
+            result.protectionRestored = false;
+            result.error = "injected restore-protection failure";
             return result;
         }
         WriteResult result;
@@ -319,6 +333,7 @@ public:
 private:
     ByteBufferMemory inner_;
     int writes_ = 0;
+    bool restoreUnprotected_ = false;
 };
 
 void TestUnconfirmedRollbackRetainsTrampoline() {
@@ -420,6 +435,42 @@ void TestConfirmedRollbackReleasesTrampoline() {
     munmap(page, 4096);
 }
 
+// Split confirmation semantics: the restore brings the original bytes back
+// (read-back confirms) but reports unrestored page protections. The batch
+// must NOT escalate to Rollback (bytes are verifiably back, so the
+// trampoline releases correctly), yet must NOT report a complete rollback
+// either: the protections caveat stays visible in the diagnostic.
+void TestRollbackProtectionCaveatReleasesTrampoline() {
+    void *page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    Require(page != MAP_FAILED, "test mmap must succeed");
+    const auto pageAddress =
+        static_cast<Address>(reinterpret_cast<std::uintptr_t>(page));
+    const Address base = pageAddress + 0x100000;
+
+    PoisonedMemory memory({0xAA, 0xBB, 0xCC, 0xCC, 0xDD, 0xEE, 0x90, 0x90}, base);
+    memory.setRestoreUnprotected(true);
+    HonestAllocator allocator(pageAddress);
+    eu4dll::patch::PatchBatch batch(memory, &allocator);
+    batch.Add(RawAt("AA BB", 0x11));
+    batch.Add(JumpAt("CC DD EE", base + 0x100000000ULL));
+    const auto result = batch.Commit();
+
+    Require(!result, "poisoned write must fail the batch");
+    Require(result.diagnostic.operation == eu4dll::patch::PatchOperation::WriteMutation,
+            "bytes-confirmed restore must not escalate to a rollback diagnostic");
+    Require(result.diagnostic.message.find("NOT restored") != std::string::npos,
+            "diagnostic must carry the unrestored-protections caveat");
+    Require(allocator.released(),
+            "bytes-confirmed restore releases the trampoline despite the caveat");
+    Require(memory.Bytes() ==
+                std::vector<std::uint8_t>({0xAA, 0xBB, 0xCC, 0xCC, 0xDD, 0xEE, 0x90, 0x90}),
+            "bytes-confirmed restore brings every site back");
+    Require(result.installations.empty(), "failed batch publishes nothing");
+
+    munmap(page, 4096);
+}
+
 }  // namespace
 
 int main() {
@@ -431,6 +482,7 @@ int main() {
     TestEmptyBatchFails();
     TestUnconfirmedRollbackRetainsTrampoline();
     TestConfirmedRollbackReleasesTrampoline();
+    TestRollbackProtectionCaveatReleasesTrampoline();
     std::cout << "patch batch tests passed" << std::endl;
     return 0;
 }

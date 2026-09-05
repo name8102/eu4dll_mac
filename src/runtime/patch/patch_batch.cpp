@@ -49,21 +49,29 @@ struct StagedPatch {
     // rollback membership is decided by this flag, never by call success.
     bool mutationApplied = false;
     // Set only after read-back verification proves the original bytes are
-    // live again. A trampoline is released only when its entry never mutated
-    // or its restore is confirmed; otherwise it is intentionally leaked.
-    bool rollbackConfirmed = false;
+    // live again. Trampoline release depends ONLY on this flag: once the
+    // original jump/call bytes are back, game code no longer references the
+    // trampoline, whatever the page permissions are.
+    bool rollbackBytesConfirmed = false;
+    // Mirrors WriteResult::protectionRestored of the restore attempt. Bytes
+    // and permissions are reported independently: a restore can bring the
+    // bytes back while leaving the code page writable, and the batch must
+    // not claim a complete rollback in that case.
+    bool rollbackProtectionRestored = true;
     bool trampolineReleased = false;
 };
 
 // Releases one staged trampoline iff no live game code can reference it:
-// the site was never mutated, or its restore was read-back confirmed.
-// A mutated-but-unconfirmed site may still jump at the trampoline, so the
-// page is intentionally leaked to process exit instead of munmap-SIGSEGV.
+// the site was never mutated, or the original bytes are read-back confirmed
+// live again. Page permissions play no role here: an RWX-but-original site
+// jumps to the old target, not the trampoline. A mutated-but-unconfirmed
+// site may still jump at the trampoline, so the page is intentionally
+// leaked to process exit instead of munmap-SIGSEGV.
 void ReleaseEntryTrampoline(ExecutableCodeAllocator *allocator, StagedPatch &entry) {
     if (allocator == nullptr || !entry.branch.has_value() || entry.trampolineReleased) {
         return;
     }
-    if (entry.mutationApplied && !entry.rollbackConfirmed) return;
+    if (entry.mutationApplied && !entry.rollbackBytesConfirmed) return;
     ReleaseResolvedBranch(allocator, *entry.branch);
     entry.trampolineReleased = true;
 }
@@ -76,6 +84,10 @@ void ReleaseAllStagedTrampolines(ExecutableCodeAllocator *allocator,
 struct RollbackOutcome {
     std::vector<std::string> unconfirmed;
     std::string firstError;
+    // Entries whose bytes verified but whose restore left page protections
+    // unrestored. Their trampolines are still safe to release (the original
+    // jump is back), but the batch must not report a complete rollback.
+    std::vector<std::string> unrestoredProtections;
     std::size_t retainedTrampolines = 0;
 };
 
@@ -86,16 +98,17 @@ RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocato
                                std::vector<StagedPatch> &staged) {
     RollbackOutcome outcome;
     for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
-        if (!it->mutationApplied || it->rollbackConfirmed) continue;
+        if (!it->mutationApplied || it->rollbackBytesConfirmed) continue;
         const auto rewritten =
             memory.Write(it->mutationAddress, it->original.data(), it->original.size());
+        it->rollbackProtectionRestored = rewritten.protectionRestored;
         std::vector<std::uint8_t> current(it->original.size());
         std::string readError;
         const bool confirmed =
             memory.Read(it->mutationAddress, current.data(), current.size(), readError) &&
             current == it->original;
         if (confirmed) {
-            it->rollbackConfirmed = true;
+            it->rollbackBytesConfirmed = true;
         } else {
             outcome.unconfirmed.push_back(it->description->feature);
             if (outcome.firstError.empty()) {
@@ -111,9 +124,15 @@ RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocato
         }
     }
     ReleaseAllStagedTrampolines(allocator, staged);
+    for (auto &entry : staged) {
+        if (entry.mutationApplied && entry.rollbackBytesConfirmed &&
+            !entry.rollbackProtectionRestored) {
+            outcome.unrestoredProtections.push_back(entry.description->feature);
+        }
+    }
     for (const auto &entry : staged) {
         if (entry.branch.has_value() && entry.mutationApplied &&
-            !entry.rollbackConfirmed && !entry.trampolineReleased) {
+            !entry.rollbackBytesConfirmed && !entry.trampolineReleased) {
             ++outcome.retainedTrampolines;
         }
     }
@@ -122,24 +141,37 @@ RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocato
 
 void AnnotateRollback(PatchDiagnostic &diagnostic, const RollbackOutcome &outcome,
                       std::size_t appliedCount) {
-    if (outcome.unconfirmed.empty()) {
-        diagnostic.message += "; rollback restored " + std::to_string(appliedCount) +
-                              " applied site(s)";
+    if (!outcome.unconfirmed.empty()) {
+        diagnostic.operation = PatchOperation::Rollback;
+        std::ostringstream stream;
+        stream << diagnostic.message << "; rollback UNCONFIRMED at [";
+        for (std::size_t i = 0; i < outcome.unconfirmed.size(); ++i) {
+            if (i != 0) stream << ", ";
+            stream << outcome.unconfirmed[i];
+        }
+        stream << "]: " << outcome.firstError;
+        if (outcome.retainedTrampolines > 0) {
+            stream << "; " << outcome.retainedTrampolines
+                   << " trampoline(s) intentionally retained (fail-safe leak, not unmapped)";
+        }
+        diagnostic.message = stream.str();
         return;
     }
-    diagnostic.operation = PatchOperation::Rollback;
-    std::ostringstream stream;
-    stream << diagnostic.message << "; rollback UNCONFIRMED at [";
-    for (std::size_t i = 0; i < outcome.unconfirmed.size(); ++i) {
-        if (i != 0) stream << ", ";
-        stream << outcome.unconfirmed[i];
+    diagnostic.message += "; rollback restored " + std::to_string(appliedCount) +
+                          " applied site(s)";
+    // Bytes are verifiably back, so trampolines were released correctly;
+    // but unrestored page protections must not be reported as a complete
+    // rollback.
+    if (!outcome.unrestoredProtections.empty()) {
+        std::ostringstream stream;
+        stream << diagnostic.message << "; page protections NOT restored at [";
+        for (std::size_t i = 0; i < outcome.unrestoredProtections.size(); ++i) {
+            if (i != 0) stream << ", ";
+            stream << outcome.unrestoredProtections[i];
+        }
+        stream << "]";
+        diagnostic.message = stream.str();
     }
-    stream << "]: " << outcome.firstError;
-    if (outcome.retainedTrampolines > 0) {
-        stream << "; " << outcome.retainedTrampolines
-               << " trampoline(s) intentionally retained (fail-safe leak, not unmapped)";
-    }
-    diagnostic.message = stream.str();
 }
 
 std::size_t CountApplied(const std::vector<StagedPatch> &staged) {
@@ -419,6 +451,10 @@ BatchResult PatchBatch::Commit() {
                         PatchOperation::VerifyOriginalBytes, error);
             result.diagnostic.matchAddress = site;
             result.diagnostic.mutationAddress = mutationAddress;
+            // The entry is not in `staged` yet, but it may already own a
+            // trampoline: release it here (nothing mutated, so unconditional
+            // release is safe) along with the staged set.
+            ReleaseEntryTrampoline(allocator_, entry);
             ReleaseAllStagedTrampolines(allocator_, staged);
             return result;
         }
@@ -432,6 +468,7 @@ BatchResult PatchBatch::Commit() {
                     "patch batch contains overlapping writes");
                 result.diagnostic.matchAddress = site;
                 result.diagnostic.mutationAddress = mutationAddress;
+                ReleaseEntryTrampoline(allocator_, entry);
                 ReleaseAllStagedTrampolines(allocator_, staged);
                 return result;
             }

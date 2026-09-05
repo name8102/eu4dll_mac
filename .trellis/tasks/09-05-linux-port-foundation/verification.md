@@ -94,8 +94,25 @@ targeted fault-injection regression test.
   write + dropped rollback ⇒ Rollback op, trampoline NOT released,
   payload honestly still visible) plus the mirror
   `TestConfirmedRollbackReleasesTrampoline` (clean failure ⇒ released, no
-  safe-path leak). These fault paths are unreachable in normal soak
-  testing.
+  safe-path leak) and `TestRollbackProtectionCaveatReleasesTrampoline`
+  (bytes back but protections unrestored ⇒ stays WriteMutation with a
+  "NOT restored" caveat, trampoline still released). These fault paths
+  are unreachable in normal soak testing.
+
+Second narrow review (against `5bc5edf`), fixed without general test
+changes beyond the one case above:
+
+- Rollback confirmation no longer conflates bytes with permissions.
+  `StagedPatch` now tracks `rollbackBytesConfirmed` (read-back) and
+  `rollbackProtectionRestored` (restore-write result) separately:
+  trampoline release depends only on the bytes flag, while a fully
+  "rollback restored" report additionally requires the permissions flag.
+  A bytes-confirmed but protection-unrestored rollback keeps its original
+  operation and gains an explicit "page protections NOT restored at […]"
+  caveat instead of a false complete-rollback claim.
+- Phase-1 snapshot-read and overlap failures now also release the current
+  (not yet pushed) entry's own trampoline; previously only the staged set
+  was released, leaking one page per such failure (safe but sloppy).
 
 Re-verification after the fixes: clean rebuild, **15/15 tests pass**,
 preload smoke unchanged, and a second live EU4 run committed **4/4 base
