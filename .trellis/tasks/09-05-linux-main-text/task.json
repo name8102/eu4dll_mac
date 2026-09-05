@@ -1,8 +1,34 @@
 {
-  "id": "linux-main-text", "name": "linux-main-text", "title": "Port Linux main text rendering",
+  "id": "linux-main-text",
+  "name": "linux-main-text",
+  "title": "Port Linux main text rendering",
   "description": "Port main UI text rendering hooks for Linux on top of the verified base + textLayout stack.",
-  "status": "planning", "dev_type": "feature", "scope": "Linux main UI/event text hooks", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
-  "relatedFiles": ["src/mainText.cpp", "src/targets/eu4_1_37_5/linux_x86_64/"],
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "Linux main UI/event text hooks",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": "2026-09-05",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-05-linux-feature-migration",
+  "relatedFiles": [
+    "src/mainText.cpp",
+    "src/targets/eu4_1_37_5/linux_x86_64/"
+  ],
   "notes": "Do not include tooltip/map/input behavior.",
-  "meta": {"depends_on": ["09-05-linux-text-layout"], "legacy_evidence": "src/platform/linux/main_text_probe.cpp"}
+  "meta": {
+    "depends_on": [
+      "09-05-linux-text-layout"
+    ],
+    "legacy_evidence": "src/platform/linux/main_text_probe.cpp"
+  }
 }

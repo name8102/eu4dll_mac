@@ -1,8 +1,36 @@
 {
-  "id": "linux-input-ime", "name": "linux-input-ime", "title": "Port Linux text input and IME",
+  "id": "linux-input-ime",
+  "name": "linux-input-ime",
+  "title": "Port Linux text input and IME",
   "description": "Implement the Linux native input/IME adapter and target bridge using the existing portable text_input state machine.",
-  "status": "planning", "dev_type": "feature", "scope": "Linux native IME/input adapter and EU4 bridge", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
-  "relatedFiles": ["src/input.cpp", "src/features/text_input/", "src/platform/linux/", "src/targets/eu4_1_37_5/linux_x86_64/"],
-  "notes": "Native event code, target ABI and portable edit policy must remain separate.",
-  "meta": {"depends_on": ["09-05-linux-localization-utf8"], "legacy_evidence": "src/platform/linux/input_ime_probe.cpp"}
+  "status": "in_progress",
+  "dev_type": "feature",
+  "scope": "Linux native IME/input adapter and EU4 bridge",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-05-linux-feature-migration",
+  "relatedFiles": [
+    "src/input.cpp",
+    "src/features/text_input/",
+    "src/platform/linux/",
+    "src/targets/eu4_1_37_5/linux_x86_64/"
+  ],
+  "notes": "Canonical SDL adapter and 10 target patches implemented. System SDL dynamic API enables Fcitx; user confirmed Chinese input/display. Inherited CEditBox edits now intercepted at function entry; real ELF regression reproduces base-vtable bypass and passes after fix. Await final user deletion confirmation. Final installed revision was restarted; user confirmed deletion and map spacing now work correctly. Broader unverified scenarios remain documented.",
+  "meta": {
+    "depends_on": [
+      "09-05-linux-localization-utf8"
+    ],
+    "legacy_evidence": "src/platform/linux/input_ime_probe.cpp"
+  }
 }

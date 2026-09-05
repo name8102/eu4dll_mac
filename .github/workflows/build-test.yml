@@ -1,17 +1,27 @@
-name: Build Test Mac x86_64
+name: Build and Test macOS and Linux
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
-    runs-on: macos-latest
+  macos:
+    name: macOS x86_64
+    runs-on: macos-15-intel
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Configure CMake
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
@@ -58,11 +68,64 @@ jobs:
       - name: Create ZIP Archive
         run: |
           cd release_package
-          zip -r ../eu4dll_mac_build_test_${{ github.run_number }}.zip ./*
+          zip -r ../eu4dll-macos-x86_64.zip ./*
           cd ..
 
       - name: Upload Test Package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: eu4dll_mac_build_test_${{ github.run_number }}
-          path: eu4dll_mac_build_test_${{ github.run_number }}.zip
+          name: eu4dll-macos-x86_64
+          path: eu4dll-macos-x86_64.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure strict build
+        run: cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+
+      - name: Build library, tools and tests
+        run: cmake --build build-linux --parallel 4
+
+      - name: Run tests
+        run: ctest --test-dir build-linux --output-on-failure
+
+      - name: Verify artifact and launcher
+        run: |
+          file build-linux/libeu4dll_linux.so
+          readelf -h build-linux/libeu4dll_linux.so | grep -q 'Advanced Micro Devices X86-64'
+          ldd build-linux/libeu4dll_linux.so
+          if readelf -d build-linux/libeu4dll_linux.so | grep -q libcpp-pinyin; then
+            echo '::error::cpp-pinyin must be statically linked'
+            exit 1
+          fi
+          bash -n scripts/linux/launch-eu4.sh scripts/linux/probe.sh
+          python3 scripts/linux/install.py --help
+          scripts/linux/launch-eu4.sh --dry-run
+
+      - name: Package Linux library and installer
+        run: |
+          mkdir -p release_package
+          cp build-linux/libeu4dll_linux.so release_package/
+          cp scripts/linux/launch-eu4.sh scripts/linux/install.py release_package/
+          cp docs/LINUX_ADAPTATION.zh-CN.md release_package/README.md
+          cp -R build-linux/chinese_dict release_package/
+          git rev-parse HEAD > release_package/BUILD_INFO.txt
+          uname -a >> release_package/BUILD_INFO.txt
+          c++ --version >> release_package/BUILD_INFO.txt
+          readelf --version-info build-linux/libeu4dll_linux.so >> release_package/BUILD_INFO.txt
+          python3 release_package/install.py --help
+          cd release_package
+          zip -r ../eu4dll-linux-x86_64.zip .
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eu4dll-linux-x86_64
+          path: eu4dll-linux-x86_64.zip
+          if-no-files-found: error

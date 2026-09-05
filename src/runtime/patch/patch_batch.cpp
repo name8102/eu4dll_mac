@@ -89,6 +89,9 @@ struct RollbackOutcome {
     // jump is back), but the batch must not report a complete rollback.
     std::vector<std::string> unrestoredProtections;
     std::size_t retainedTrampolines = 0;
+    // Whether any entry actually needed a restore attempt. Without it the
+    // batch state stays NotNeeded instead of Complete.
+    bool attemptedAny = false;
 };
 
 // Restores originals for every applied entry in reverse order, verifies each
@@ -99,6 +102,7 @@ RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocato
     RollbackOutcome outcome;
     for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
         if (!it->mutationApplied || it->rollbackBytesConfirmed) continue;
+        outcome.attemptedAny = true;
         const auto rewritten =
             memory.Write(it->mutationAddress, it->original.data(), it->original.size());
         it->rollbackProtectionRestored = rewritten.protectionRestored;
@@ -139,8 +143,9 @@ RollbackOutcome RollbackStaged(Memory &memory, ExecutableCodeAllocator *allocato
     return outcome;
 }
 
-void AnnotateRollback(PatchDiagnostic &diagnostic, const RollbackOutcome &outcome,
+void AnnotateRollback(BatchResult &result, const RollbackOutcome &outcome,
                       std::size_t appliedCount) {
+    auto &diagnostic = result.diagnostic;
     if (!outcome.unconfirmed.empty()) {
         diagnostic.operation = PatchOperation::Rollback;
         std::ostringstream stream;
@@ -155,6 +160,7 @@ void AnnotateRollback(PatchDiagnostic &diagnostic, const RollbackOutcome &outcom
                    << " trampoline(s) intentionally retained (fail-safe leak, not unmapped)";
         }
         diagnostic.message = stream.str();
+        result.rollbackState = RollbackState::Unconfirmed;
         return;
     }
     diagnostic.message += "; rollback restored " + std::to_string(appliedCount) +
@@ -172,6 +178,8 @@ void AnnotateRollback(PatchDiagnostic &diagnostic, const RollbackOutcome &outcom
         stream << "]";
         diagnostic.message = stream.str();
     }
+    result.rollbackState =
+        outcome.attemptedAny ? RollbackState::Complete : RollbackState::NotNeeded;
 }
 
 std::size_t CountApplied(const std::vector<StagedPatch> &staged) {
@@ -493,7 +501,7 @@ BatchResult PatchBatch::Commit() {
             result.diagnostic.matchAddress = entry.siteAddress;
             result.diagnostic.mutationAddress = entry.mutationAddress;
             const auto outcome = RollbackStaged(memory_, allocator_, staged);
-            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
+            AnnotateRollback(result, outcome, CountApplied(staged));
             return result;
         }
         const auto written = memory_.Write(entry.mutationAddress, entry.payload.data(),
@@ -512,7 +520,7 @@ BatchResult PatchBatch::Commit() {
             result.diagnostic.matchAddress = entry.siteAddress;
             result.diagnostic.mutationAddress = entry.mutationAddress;
             const auto outcome = RollbackStaged(memory_, allocator_, staged);
-            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
+            AnnotateRollback(result, outcome, CountApplied(staged));
             return result;
         }
     }
@@ -531,7 +539,7 @@ BatchResult PatchBatch::Commit() {
         if (!optimized.success) {
             result.diagnostic = std::move(optimized);
             const auto outcome = RollbackStaged(memory_, allocator_, staged);
-            AnnotateRollback(result.diagnostic, outcome, CountApplied(staged));
+            AnnotateRollback(result, outcome, CountApplied(staged));
             return result;
         }
     }

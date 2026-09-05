@@ -8,3 +8,7 @@ add_library(eu4dll_platform_linux STATIC
 target_compile_features(eu4dll_platform_linux PUBLIC cxx_std_17)
 target_include_directories(eu4dll_platform_linux PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(eu4dll_platform_linux PUBLIC eu4dll_runtime dl)
+
+add_library(eu4dll_platform_linux_input STATIC sdl_input_adapter.cpp sdl_input_adapter.h)
+target_include_directories(eu4dll_platform_linux_input PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_platform_linux_input PUBLIC eu4dll_text_input)

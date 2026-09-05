@@ -1,8 +1,36 @@
 {
-  "id": "linux-clipboard-paste", "name": "linux-clipboard-paste", "title": "Port Linux clipboard paste",
+  "id": "linux-clipboard-paste",
+  "name": "linux-clipboard-paste",
+  "title": "Port Linux clipboard paste",
   "description": "Add Linux clipboard paste on top of the verified Linux text input pipeline.",
-  "status": "planning", "dev_type": "feature", "scope": "Linux clipboard acquisition and paste bridge", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
-  "relatedFiles": ["src/input.cpp", "src/features/text_input/", "src/platform/linux/", "src/targets/eu4_1_37_5/linux_x86_64/"],
-  "notes": "Reuse the portable insertion/edit path.",
-  "meta": {"depends_on": ["09-05-linux-input-ime"], "legacy_evidence": "src/platform/linux/clipboard_paste_probe.cpp"}
+  "status": "in_progress",
+  "dev_type": "feature",
+  "scope": "Linux clipboard acquisition and paste bridge",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-05-linux-feature-migration",
+  "relatedFiles": [
+    "src/input.cpp",
+    "src/features/text_input/",
+    "src/platform/linux/",
+    "src/targets/eu4_1_37_5/linux_x86_64/"
+  ],
+  "notes": "Canonical copy/cut/paste call redirects implemented. Actual CTextBuffer and isolated SDL dummy clipboard round trip passed. All-widget game verification remains pending.",
+  "meta": {
+    "depends_on": [
+      "09-05-linux-input-ime"
+    ],
+    "legacy_evidence": "src/platform/linux/clipboard_paste_probe.cpp"
+  }
 }

@@ -49,6 +49,22 @@ std::uint32_t CountLogicalGlyphs(const std::uint8_t *bytes, std::uint32_t size) 
     return count;
 }
 
+extern "C" std::uint8_t ClassifySpacingEscapeRaw(std::uint64_t markerIndex,
+                                                       std::uint64_t lastIndex) {
+    // r15 is the last valid byte index: an escape needs markerIndex+1 and
+    // markerIndex+2 to both be addressable payload.
+    if (markerIndex >= lastIndex) {
+        return static_cast<std::uint8_t>(SpacingEscapeAction::kFinalTruncated);
+    }
+    if (markerIndex + 2 > lastIndex) {
+        return static_cast<std::uint8_t>(SpacingEscapeAction::kFinalTruncated);
+    }
+    if (markerIndex + 2 == lastIndex) {
+        return static_cast<std::uint8_t>(SpacingEscapeAction::kFinalComplete);
+    }
+    return static_cast<std::uint8_t>(SpacingEscapeAction::kContinue);
+}
+
 extern "C" {
 __attribute__((visibility("hidden"))) uintptr_t g_linuxFillPreprocessingReturnAddress = 0;
 __attribute__((visibility("hidden"))) uintptr_t g_linuxFillDrawingReturnAddress = 0;
@@ -85,6 +101,16 @@ void ToUpperPreservingEscapes(void *text) {
     }
 }
 
+__attribute__((target("general-regs-only")))
+void AppendFinalSpacingByte(void *text, const char *scratch) {
+    // The original final-ASCII path reuses a scratch buffer that may still
+    // hold the previous Han payload. Append exactly its new first byte.
+    const char finalByte[2]{scratch[0], 0};
+    reinterpret_cast<void (*)(void *, const char *)>(
+        g_linuxMapTextCStringAppendStringAddress)(text, finalByte);
+}
+
+__attribute__((target("general-regs-only")))
 std::uint32_t CurveTextGetGlyphCount(const void *text) {
     const auto getSize =
         reinterpret_cast<CStringGetSize>(g_linuxMapTextCStringGetSizeAddress);
@@ -259,6 +285,8 @@ EU4DLL_DEFINE_GLYPH_HOOK(NakedAddNudgedNamesGlyphCount, "add ebx, 2",
 __attribute__((naked)) void NakedAddNameAreaSpacing() {
     __asm__ volatile(
         ".intel_syntax noprefix\n"
+        // Native scratch initialization reserves only a byte plus NUL. Four
+        // bytes fit in its aligned stack slot and terminate a full escape.
         "mov dword ptr [rbp - 0x88], 0\n"
         "mov al, byte ptr [r13 + r12]\n"
         "mov byte ptr [rbp - 0x88], al\n"
@@ -272,13 +300,26 @@ __attribute__((naked)) void NakedAddNameAreaSpacing() {
         "je 1f\n"
         "jmp qword ptr [rip + g_linuxAddNameAreaSpacingReturnAddress]\n"
         "1:\n"
-        // Payload bounds mirror the game's own length check: only read the
-        // two payload bytes when two bytes provably remain.
-        "lea rax, [r12 + 2]\n"
-        "cmp rax, r15\n"
-        "jae 2f\n"
+        // Escape disposition mirrors ClassifySpacingEscape exactly (unit-
+        // tested): r15 is the last valid byte index, so r12+2==r15 is a
+        // complete final escape (copy payload, then final), not a
+        // truncation. r12/r13/r15/rbp survive the call (callee-saved);
+        // rdi/rsi are saved; the helper emits no XMM (general-regs-only).
+        "push rdi\n"
+        "push rsi\n"
+        "mov rdi, r12\n"
+        "mov rsi, r15\n"
+        "call ClassifySpacingEscapeRaw\n"
+        "pop rsi\n"
+        "pop rdi\n"
+        // uint8_t returns only define AL; EAX can retain a CString pointer.
+        "movzx ecx, al\n"
+        "cmp ecx, 2\n"
+        "je 2f\n"
         "mov ax, word ptr [r13 + r12 + 1]\n"
         "mov word ptr [rbp - 0x87], ax\n"
+        "cmp ecx, 1\n"
+        "je 2f\n"
         "add r12, 2\n"
         "jmp qword ptr [rip + g_linuxAddNameAreaSpacingReturnAddress]\n"
         "2:\n"
@@ -366,28 +407,31 @@ patch::Address LiveAddress(void (*fn)()) {
     return reinterpret_cast<patch::Address>(reinterpret_cast<std::uintptr_t>(fn));
 }
 
-patch::BatchResult Failure(const char *feature, patch::PatchOperation operation,
-                           const std::string &message) {
-    patch::BatchResult failed;
-    failed.diagnostic.feature = feature;
-    failed.diagnostic.target = kDiagnosticTargetId;
-    failed.diagnostic.operation = operation;
-    failed.diagnostic.message = message;
-    return failed;
-}
-
-void ClearSlots() {
+// Per-cluster slot clearing: a failing cluster must never clear slots
+// owned by already-installed clusters (their machine code stays patched).
+// Shared CString callee slots are resolved once by InstallMapText and only
+// cleared when zero clusters installed successfully. Every clear below is
+// additionally gated on MustRetainSlots by the caller.
+void ClearCalleeSlots() {
     CStringAppendCharSlot() = 0;
     CStringAppendStringSlot() = 0;
     CStringGetSizeSlot() = 0;
     CStringIndexSlot() = 0;
     CStringMutableIndexSlot() = 0;
+}
+void ClearFillSlots() {
     FillPreprocessingReturnSlot() = 0;
     FillDrawingReturnSlot() = 0;
+}
+void ClearAddNameAreaSlots() {
     SpacingReturnSlot() = 0;
     SpacingFinalSlot() = 0;
     AddNameAreaGlyphReturnSlot() = 0;
+}
+void ClearAddNudgedNamesSlots() {
     AddNudgedNamesGlyphReturnSlot() = 0;
+}
+void ClearCurveTextSlots() {
     CurveDrawingReturnSlot() = 0;
 }
 
@@ -580,9 +624,15 @@ std::vector<patch::PatchDescription> FillVertexBufferDescriptions(
 
 std::vector<patch::PatchDescription> AddNameAreaDescriptions(
     const MapHookTargets &targets) {
+    auto finalByte = SymbolContract("map-text.CGenerateNamesWork.AddNameArea.final-byte",
+        "E8 16 E3 9E 00 4C 8B 6D 88", kGenerateNamesAddNameAreaSymbol, kAddNameAreaSearchSize);
+    finalByte.expected = patch::ExpectedBytes{0, {0xE8,0x16,0xE3,0x9E,0}, {}};
+    finalByte.mutation.kind = patch::MutationKind::Call;
+    finalByte.mutation.callWidth = patch::CallWidth::FiveBytes;
+    finalByte.mutation.target = targets.spacingFinalByte;
     return {SpacingDescription(targets.spacing),
             ToUpperCallDescription(targets.toUpperCall),
-            AddNameAreaGlyphDescription(targets.addNameAreaGlyph)};
+            AddNameAreaGlyphDescription(targets.addNameAreaGlyph), std::move(finalByte)};
 }
 
 std::vector<patch::PatchDescription> AddNudgedNamesDescriptions(
@@ -592,7 +642,7 @@ std::vector<patch::PatchDescription> AddNudgedNamesDescriptions(
 
 std::vector<patch::PatchDescription> CurveTextDescriptions(
     const MapHookTargets &targets) {
-    // NOTE: the two GetSize call redirects are staged by InstallCurveText
+    // NOTE: the three GetSize call redirects are staged by InstallCurveText
     // through LocateLengthCalls (address-pinned); this factory covers the
     // jump-hooked members for preflight/test use.
     return {CurveDrawingDescription(targets.curveDrawing)};
@@ -624,7 +674,14 @@ std::vector<patch::PatchDescription> CurveCallRedirects(patch::Address target) {
     secondRedirect.mutation.offset =
         static_cast<std::ptrdiff_t>(kCurveSecondCallOffset);
     secondRedirect.mutation.target = target;
-    return {std::move(firstRedirect), std::move(secondRedirect)};
+    patch::PatchDescription interpolation = firstRedirect;
+    interpolation.feature = "map-text.CurveText.glyph-count-call.interpolation";
+    interpolation.location.pattern = kCurveInterpolationCallPattern;
+    interpolation.expected = patch::ExpectedBytes{
+        0, {kCurveInterpolationCallOriginal.begin(),
+            kCurveInterpolationCallOriginal.end()}, {}};
+    return {std::move(firstRedirect), std::move(secondRedirect),
+            std::move(interpolation)};
 }
 
 MapHookTargets LiveHookTargets() {
@@ -632,6 +689,7 @@ MapHookTargets LiveHookTargets() {
     targets.fillPreprocessing = LiveAddress(NakedFillVertexBufferPreprocessing);
     targets.fillDrawing = LiveAddress(NakedFillVertexBufferDrawing);
     targets.spacing = LiveAddress(NakedAddNameAreaSpacing);
+    targets.spacingFinalByte = reinterpret_cast<patch::Address>(&AppendFinalSpacingByte);
     targets.toUpperCall = reinterpret_cast<patch::Address>(
         reinterpret_cast<std::uintptr_t>(&ToUpperPreservingEscapes));
     targets.addNameAreaGlyph = LiveAddress(NakedAddNameAreaGlyphCount);
@@ -674,7 +732,7 @@ patch::BatchResult InstallFillVertexBuffer(patch::Memory &memory,
         const auto located = runtime.Preflight(pre);
         if (!located) {
             result.diagnostic = located.diagnostic;
-            ClearSlots();
+            ClearFillSlots();
             return result;
         }
         FillPreprocessingReturnSlot() = located.ContinuationAddress("return");
@@ -682,13 +740,13 @@ patch::BatchResult InstallFillVertexBuffer(patch::Memory &memory,
         const auto locatedDraw = runtime.Preflight(draw);
         if (!locatedDraw) {
             result.diagnostic = locatedDraw.diagnostic;
-            ClearSlots();
+            ClearFillSlots();
             return result;
         }
         FillDrawingReturnSlot() = locatedDraw.ContinuationAddress("return");
     }
     if (!CommitDescriptions(memory, a, FillVertexBufferDescriptions(targets), result)) {
-        ClearSlots();
+        if (!patch::MustRetainSlots(result)) ClearFillSlots();
     }
     return result;
 }
@@ -711,7 +769,7 @@ patch::BatchResult InstallAddNameArea(patch::Memory &memory,
         const auto located = runtime.Preflight(spacing);
         if (!located) {
             result.diagnostic = located.diagnostic;
-            ClearSlots();
+            ClearAddNameAreaSlots();
             return result;
         }
         SpacingReturnSlot() = located.ContinuationAddress("return");
@@ -720,13 +778,13 @@ patch::BatchResult InstallAddNameArea(patch::Memory &memory,
         const auto locatedGlyph = runtime.Preflight(glyph);
         if (!locatedGlyph) {
             result.diagnostic = locatedGlyph.diagnostic;
-            ClearSlots();
+            ClearAddNameAreaSlots();
             return result;
         }
         AddNameAreaGlyphReturnSlot() = locatedGlyph.ContinuationAddress("return");
     }
     if (!CommitDescriptions(memory, a, AddNameAreaDescriptions(targets), result)) {
-        ClearSlots();
+        if (!patch::MustRetainSlots(result)) ClearAddNameAreaSlots();
     }
     return result;
 }
@@ -749,21 +807,28 @@ patch::BatchResult InstallAddNudgedNames(patch::Memory &memory,
         const auto located = runtime.Preflight(glyph);
         if (!located) {
             result.diagnostic = located.diagnostic;
-            ClearSlots();
+            ClearAddNudgedNamesSlots();
             return result;
         }
         AddNudgedNamesGlyphReturnSlot() = located.ContinuationAddress("return");
     }
     if (!CommitDescriptions(memory, a, AddNudgedNamesDescriptions(targets), result)) {
-        ClearSlots();
+        if (!patch::MustRetainSlots(result)) ClearAddNudgedNamesSlots();
     }
     return result;
 }
 
 patch::BatchResult PreflightCurveText(patch::Memory &memory,
                                       patch::ExecutableCodeAllocator *a) {
+    const auto targets = LiveHookTargets();
     patch::PatchBatch batch(memory, a);
-    for (auto &d : CurveTextDescriptions(LiveHookTargets())) batch.Add(std::move(d));
+    for (auto &d : CurveTextDescriptions(targets)) batch.Add(std::move(d));
+    // The three GetSize redirects join the same preflight so their patterns,
+    // expected bytes, spans, and reachability all verify before the first
+    // map commit anywhere.
+    for (auto &d : CurveCallRedirects(targets.curveGetSizeFirst)) {
+        batch.Add(std::move(d));
+    }
     // Length-call window must also locate uniquely (installed by address).
     std::string error;
     if (!LocateLengthCalls(memory, error)) {
@@ -789,11 +854,11 @@ patch::BatchResult InstallCurveText(patch::Memory &memory,
         result.diagnostic.target = kDiagnosticTargetId;
         result.diagnostic.operation = patch::PatchOperation::LocatePattern;
         result.diagnostic.message = error;
-        ClearSlots();
+        ClearCurveTextSlots();
         return result;
     }
     // Verify both call operands before staging anything.
-    for (const auto [site, expected] : {
+    for (const auto &[site, expected] : {
              std::make_pair(lengthCalls->first,
                             std::vector<std::uint8_t>(
                                 kCurveFirstCallOriginal.begin(),
@@ -811,7 +876,7 @@ patch::BatchResult InstallCurveText(patch::Memory &memory,
             result.diagnostic.operation = patch::PatchOperation::VerifyOriginalBytes;
             result.diagnostic.message =
                 error.empty() ? "length-call bytes do not match" : error;
-            ClearSlots();
+            ClearCurveTextSlots();
             return result;
         }
     }
@@ -821,7 +886,7 @@ patch::BatchResult InstallCurveText(patch::Memory &memory,
         const auto located = runtime.Preflight(drawing);
         if (!located) {
             result.diagnostic = located.diagnostic;
-            ClearSlots();
+            ClearCurveTextSlots();
             return result;
         }
         CurveDrawingReturnSlot() = located.ContinuationAddress("return");
@@ -833,8 +898,8 @@ patch::BatchResult InstallCurveText(patch::Memory &memory,
         batch.Add(std::move(d));
     }
     result = batch.Commit();
-    if (!result) {
-        ClearSlots();
+    if (!result && !patch::MustRetainSlots(result)) {
+        ClearCurveTextSlots();
     }
     return result;
 }
@@ -858,6 +923,17 @@ patch::BatchResult PreflightMapText(patch::Memory &memory,
 
 patch::BatchResult InstallMapText(patch::Memory &memory,
                                   patch::ExecutableCodeAllocator *a) {
+    // Shared CString callees resolve once up front: every cluster below
+    // needs them, and clearing them on a later cluster failure would orphan
+    // already-installed earlier clusters. They clear only when zero
+    // clusters installed successfully.
+    {
+        patch::BatchResult probe;
+        if (!ResolveCStringSlots(memory, "map-text", probe)) {
+            ClearCalleeSlots();
+            return probe;
+        }
+    }
     const char *names[] = {"fill-vertex-buffer", "add-name-area", "add-nudged-names",
                            "curve-text"};
     patch::BatchResult (*installers[])(patch::Memory &,
@@ -865,12 +941,20 @@ patch::BatchResult InstallMapText(patch::Memory &memory,
         InstallFillVertexBuffer, InstallAddNameArea, InstallAddNudgedNames,
         InstallCurveText};
     patch::BatchResult result;
+    std::size_t installed = 0;
     for (std::size_t i = 0; i < 4; ++i) {
         result = installers[i](memory, a);
         std::fprintf(stderr, "eu4dll_linux [mapText] cluster %-18s %s: %s\n", names[i],
                      static_cast<bool>(result) ? "installed" : "FAILED",
                      patch::FormatDiagnostic(result.diagnostic).c_str());
-        if (!result) return result;  // earlier clusters stay: diagnosable bisection
+        if (!result) {
+            // Earlier clusters stay installed by design (diagnosable
+            // bisection); their slots are untouched above. Callees clear
+            // only on a pristine failure.
+            if (installed == 0) ClearCalleeSlots();
+            return result;
+        }
+        ++installed;
     }
     result.diagnostic.feature = "map-text";
     result.diagnostic.message = "all map-text clusters installed";

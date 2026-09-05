@@ -4,6 +4,7 @@
 #include "runtime/patch/memory.h"
 #include "runtime/patch/patch_runtime.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,12 +20,31 @@ namespace eu4dll::patch {
 // are restored in reverse order and rollback failures are reported
 // distinctly. Staged trampolines are released on failure and kept alive on
 // success (owned by the allocator for the hook lifetime).
+// Rollback outcome for slot-lifetime decisions. Adapters must retain
+// hook slots while Unconfirmed: game code may still be inside a hook
+// whose trampoline the batch intentionally kept mapped.
+enum class RollbackState : std::uint8_t {
+    NotNeeded = 0,  // nothing was applied; no rollback ran
+    Complete = 1,   // rollback ran and every restore verified
+    Unconfirmed = 2  // at least one restore could not be verified
+};
+
 struct BatchResult {
     PatchDiagnostic diagnostic;
     std::vector<InstallationResult> installations;
+    RollbackState rollbackState = RollbackState::NotNeeded;
 
     explicit operator bool() const { return diagnostic.success; }
 };
+
+// Slot-clearing rule shared by every target adapter: hook continuation
+// and callee slots may be cleared unless an unconfirmed rollback may still
+// have game code inside a hook (the same fail-safe model as trampoline
+// retention). Check this BEFORE clearing on any failed install.
+inline bool MustRetainSlots(const BatchResult &result) {
+    return !static_cast<bool>(result) &&
+           result.rollbackState == RollbackState::Unconfirmed;
+}
 
 class PatchBatch {
 public:

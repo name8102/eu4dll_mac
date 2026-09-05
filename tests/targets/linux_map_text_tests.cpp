@@ -56,6 +56,7 @@ struct FixtureLayout {
     std::size_t areaGlyph = 4608;
     std::size_t curveDrawing = 5632;
     std::size_t lengthCalls = 6144;
+    std::size_t interpolationCall = 6400;
     std::size_t nudgedSymbol = 13568;
     std::size_t nudgedGlyph = 13632;
 };
@@ -84,6 +85,7 @@ ByteBufferMemory BuildMemory() {
     fixture[layout.toUpperCall + 3] = 0x9E;
     fixture[layout.toUpperCall + 4] = 0x00;
     Place(fixture, layout.spacing, PatternBytes(maptext::kSpacingPattern));
+    Place(fixture, layout.spacing + 100, PatternBytes("E8 16 E3 9E 00 4C 8B 6D 88"));
     Place(fixture, layout.areaGlyph, PatternBytes(maptext::kNameGlyphPattern));
     Place(fixture, layout.curveDrawing, PatternBytes(maptext::kCurveDrawingPattern));
     Place(fixture, layout.lengthCalls,
@@ -102,6 +104,8 @@ ByteBufferMemory BuildMemory() {
     fixture[layout.lengthCalls + 14] = 0x9E;
     fixture[layout.lengthCalls + 15] = 0x00;
     Place(fixture, layout.nudgedGlyph, PatternBytes(maptext::kNameGlyphPattern));
+    Place(fixture, layout.interpolationCall,
+          PatternBytes(maptext::kCurveInterpolationCallPattern));
 
     ByteBufferMemory memory(std::move(fixture), 0x400000);
     memory.DefineSymbol(maptext::kFillVertexBufferSymbol,
@@ -115,6 +119,7 @@ ByteBufferMemory BuildMemory() {
 
 maptext::MapHookTargets DummyTargets(Address base) {
     maptext::MapHookTargets targets;
+    targets.spacingFinalByte = base + 0x600;
     targets.fillPreprocessing = base + 0x100;
     targets.fillDrawing = base + 0x200;
     targets.spacing = base + 0x300;
@@ -189,7 +194,7 @@ void TestClusterBatchesCommit() {
         Require(static_cast<bool>(batch.Preflight()), "curve cluster preflights");
         const auto result = batch.Commit();
         Require(static_cast<bool>(result), "curve cluster commits");
-        Require(result.installations.size() == 3, "curve installs 1 jump + 2 calls");
+        Require(result.installations.size() == 4, "curve installs 1 jump + all 3 length calls");
     }
 }
 
@@ -206,6 +211,32 @@ void TestMismatchWritesNothing() {
         maptext::PreflightCurveText(corrupted, nullptr);
     Require(!result, "corrupted CurveText site must fail preflight");
     Require(corrupted.Bytes() == before, "failed preflight writes nothing");
+}
+
+void TestSpacingEscapeBoundary() {
+    using Action = maptext::SpacingEscapeAction;
+    using maptext::ClassifySpacingEscape;
+    // r15 is the LAST VALID BYTE INDEX (length-1), not the length.
+    Require(ClassifySpacingEscape(0, 10) == Action::kContinue,
+            "mid-string escape continues");
+    Require(ClassifySpacingEscape(5, 8) == Action::kContinue,
+            "escape with bytes after continues");
+    // Complete final escape: payload r12+1..r12+2 both valid, last char.
+    Require(ClassifySpacingEscape(8, 10) == Action::kFinalComplete,
+            "r12+2==r15 must copy the payload before final");
+    Require(ClassifySpacingEscape(0, 2) == Action::kFinalComplete,
+            "three-byte-only string is one complete final escape");
+    // Truncated: payload would run past the last valid index.
+    Require(ClassifySpacingEscape(9, 10) == Action::kFinalTruncated,
+            "r12+2>r15 must not read the payload");
+    Require(ClassifySpacingEscape(10, 10) == Action::kFinalTruncated,
+            "marker at the last index is truncated");
+    Require(ClassifySpacingEscape(11, 10) == Action::kFinalTruncated,
+            "marker past the last index is truncated");
+    Require(ClassifySpacingEscape(0, 0) == Action::kFinalTruncated,
+            "lone marker is truncated");
+    Require(ClassifySpacingEscape(0, 1) == Action::kFinalTruncated,
+            "marker plus one byte is truncated");
 }
 
 void TestEscapeWalkLogic() {
@@ -236,6 +267,7 @@ int main() {
     TestClusterContinuations();
     TestClusterBatchesCommit();
     TestMismatchWritesNothing();
+    TestSpacingEscapeBoundary();
     TestEscapeWalkLogic();
     std::cout << "linux map text tests passed" << std::endl;
     return 0;

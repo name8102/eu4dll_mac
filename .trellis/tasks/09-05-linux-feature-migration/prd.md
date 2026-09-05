@@ -2,7 +2,7 @@
 
 ## Goal
 
-Finish native Linux x86-64 support in the canonical `name8102/eu4dll_mac` tree after the Linux runtime/base foundation. `name8102/eu4dll_linux@linux-port` is evidence for Linux symbols, patterns, ABI state, working behavior, and regressions only; do not merge its framework.
+Finish native Linux x86-64 support in the canonical `name8102/eu4dll_multiplatform` tree after the Linux runtime/base foundation. `name8102/eu4dll_linux@linux-port` is evidence for Linux symbols, patterns, ABI state, working behavior, and regressions only; do not merge its framework.
 
 ## Prerequisite
 

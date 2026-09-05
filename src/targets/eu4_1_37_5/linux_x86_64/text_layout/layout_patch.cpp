@@ -400,7 +400,8 @@ patch::BatchResult InstallLayout(patch::Memory &memory,
         batch.Add(std::move(description));
     }
     auto result = batch.Commit();
-    if (!result) {
+    // See base: retain slots on unconfirmed rollback (hook may be live).
+    if (!result && !patch::MustRetainSlots(result)) {
         ClearSlots();
     }
     return result;

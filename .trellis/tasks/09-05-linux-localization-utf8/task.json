@@ -1,8 +1,35 @@
 {
-  "id": "linux-localization-utf8", "name": "linux-localization-utf8", "title": "Port Linux UTF-8 localization path",
+  "id": "linux-localization-utf8",
+  "name": "linux-localization-utf8",
+  "title": "Port Linux UTF-8 localization path",
   "description": "Port Linux localization UTF-8 ingestion/lookup hooks and connect them to the existing portable localization feature layer.",
-  "status": "planning", "dev_type": "feature", "scope": "Linux UTF-8 localization target bridge", "package": null, "priority": "P1", "creator": "charl", "assignee": "charl", "createdAt": "2026-09-05", "completedAt": null, "branch": null, "base_branch": "main", "worktree_path": null, "commit": null, "pr_url": null, "subtasks": [], "children": [], "parent": "09-05-linux-feature-migration",
-  "relatedFiles": ["src/localization.cpp", "src/features/localization/", "src/targets/eu4_1_37_5/linux_x86_64/"],
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "Linux UTF-8 localization target bridge",
+  "package": null,
+  "priority": "P1",
+  "creator": "charl",
+  "assignee": "charl",
+  "createdAt": "2026-09-05",
+  "completedAt": "2026-09-05",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-05-linux-feature-migration",
+  "relatedFiles": [
+    "src/localization.cpp",
+    "src/features/localization/",
+    "src/targets/eu4_1_37_5/linux_x86_64/"
+  ],
   "notes": "Do not implement pinyin here.",
-  "meta": {"depends_on": ["09-05-linux-tooltip-text"], "legacy_evidence": "src/platform/linux/localization_utf8_probe.cpp"}
+  "meta": {
+    "depends_on": [
+      "09-05-linux-tooltip-text"
+    ],
+    "legacy_evidence": "src/platform/linux/localization_utf8_probe.cpp"
+  }
 }

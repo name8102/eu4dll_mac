@@ -16,6 +16,26 @@ namespace eu4dll::targets::eu4_1_37_5::linux_x86_64::map_text {
 inline constexpr std::uint8_t kEscapeFirst = 0x10;
 inline constexpr std::uint8_t kEscapeLast = 0x13;
 
+// Spacing-hook disposition for an escape marker at byte `markerIndex` when
+// `lastIndex` is the last valid byte index (NOT the length: the game
+// compares against length-1, so r12+2==r15 is a complete final escape,
+// not a truncation). The naked hook mirrors this truth table exactly;
+// any change here must change the hook's dispatch in lockstep.
+enum class SpacingEscapeAction : std::uint8_t {
+    kContinue = 0,       // payload complete, more bytes follow
+    kFinalComplete = 1,  // complete escape and also the last character
+    kFinalTruncated = 2  // payload incomplete: do not read past it
+};
+// C-linkage entry for the naked hook (mangled names are uncallable from
+// inline asm); general-regs-only so the hook needs no XMM audit for it.
+extern "C" __attribute__((target("general-regs-only"))) std::uint8_t
+ClassifySpacingEscapeRaw(std::uint64_t markerIndex, std::uint64_t lastIndex);
+inline SpacingEscapeAction ClassifySpacingEscape(std::uint64_t markerIndex,
+                                                 std::uint64_t lastIndex) {
+    return static_cast<SpacingEscapeAction>(
+        ClassifySpacingEscapeRaw(markerIndex, lastIndex));
+}
+
 // Advance one logical character from `offset`: escape markers consume their
 // two payload bytes, anything else consumes one. Clamped to `size`.
 std::uint32_t AdvanceLogicalChar(const std::uint8_t *bytes, std::uint32_t size,
@@ -36,8 +56,8 @@ using CStringMutableIndex = char *(*)(void *, std::uint32_t);
 // The following call's `xor eax,eax` proves the return value is ignored,
 // hence void.
 void ToUpperPreservingEscapes(void *text);
-// Logical glyph count for CurveText loop bounds/allocation (same units on
-// both sides: allocation length and vertex writing agree by construction).
+// Logical glyph count for CurveText short-label orientation, loop bounds
+// and the single-character interpolation branch.
 std::uint32_t CurveTextGetGlyphCount(const void *text);
 
 // ---- Hook slots (published from install results before commit) ----
@@ -66,6 +86,7 @@ struct MapHookTargets {
     patch::Address fillPreprocessing = 0;
     patch::Address fillDrawing = 0;
     patch::Address spacing = 0;
+    patch::Address spacingFinalByte = 0;
     patch::Address toUpperCall = 0;
     patch::Address addNameAreaGlyph = 0;
     patch::Address addNudgedNamesGlyph = 0;

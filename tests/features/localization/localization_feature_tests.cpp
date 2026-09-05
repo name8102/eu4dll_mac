@@ -70,9 +70,16 @@ void TestLocalizedSearch() {
     Require(std::find(umlautForms.begin(), umlautForms.end(), "lue") != umlautForms.end(),
             "localized search should own umlaut normalization");
 
+    const auto mixed = eu4dll::features::save_filenames::DisplayCopy("A明");
+    // The payload of 明 contains ASCII m: byte-wise lowercasing corrupts it.
+    Require(search.Match(true, mixed, mixed, "damaged-cleaned-name").matched,
+            "decode escaped query before ASCII case folding and ignore damaged cleaned Han names");
+    Require(search.Match(false, "明", mixed, "damaged-cleaned-name").matched,
+            "raw UTF-8 Chinese query should match the untouched original name");
+
     const std::string escapedQuery = escaped.substr(0, 3);
     match = search.Match(false, escapedQuery, escaped, escaped);
-    Require(match.matched, "escaped Chinese query should use cleaned-name matching");
+    Require(match.matched, "escaped Chinese query should match the original name");
 }
 
 void TestNameOrdering() {

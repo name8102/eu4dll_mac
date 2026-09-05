@@ -60,8 +60,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_subdirectory(src/targets/eu4_1_37_5/linux_x86_64)
     add_subdirectory(src/bootstrap/linux)
 
-    # Preloadable Linux shared library (LD_PRELOAD). Only the base vertical
-    # slice is enabled in the foundation task.
+    # Preloadable Linux shared library. Feature gates are set by the launcher.
     add_library(eu4dll_linux SHARED
             $<TARGET_OBJECTS:eu4dll_bootstrap_linux>)
     target_link_libraries(eu4dll_linux PRIVATE
@@ -74,6 +73,11 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_target_tooltip_eu4_1_37_5_linux_x86_64
             eu4dll_target_localization_eu4_1_37_5_linux_x86_64
             eu4dll_target_map_text_eu4_1_37_5_linux_x86_64
+            eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64
+            eu4dll_target_input_eu4_1_37_5_linux_x86_64
+            eu4dll_target_display_eu4_1_37_5_linux_x86_64
+            eu4dll_target_save_eu4_1_37_5_linux_x86_64
+            eu4dll_target_search_eu4_1_37_5_linux_x86_64
             cpp-pinyin
             dl)
 

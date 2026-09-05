@@ -13,4 +13,9 @@ target_link_libraries(eu4dll_bootstrap_linux PRIVATE
         eu4dll_target_main_text_eu4_1_37_5_linux_x86_64
         eu4dll_target_tooltip_eu4_1_37_5_linux_x86_64
         eu4dll_target_localization_eu4_1_37_5_linux_x86_64
-        eu4dll_target_map_text_eu4_1_37_5_linux_x86_64)
+        eu4dll_target_map_text_eu4_1_37_5_linux_x86_64
+        eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64
+        eu4dll_target_input_eu4_1_37_5_linux_x86_64
+        eu4dll_target_display_eu4_1_37_5_linux_x86_64
+        eu4dll_target_save_eu4_1_37_5_linux_x86_64
+        eu4dll_target_search_eu4_1_37_5_linux_x86_64)

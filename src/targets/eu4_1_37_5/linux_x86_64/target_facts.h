@@ -284,6 +284,34 @@ inline constexpr std::array<std::uint8_t, 5> kCurveFirstCallOriginal{{
     0xE8, 0xC2, 0xD0, 0x9E, 0x00}};
 inline constexpr std::array<std::uint8_t, 5> kCurveSecondCallOriginal{{
     0xE8, 0xB7, 0xD0, 0x9E, 0x00}};
+// This third GetSize chooses the single-glyph interpolation branch. Leaving
+// it byte-based makes one escaped glyph divide its index by glyphCount-1=0.
+inline constexpr char kCurveInterpolationCallPattern[] =
+    "E8 9C CE 9E 00 F3 0F 10 35 ? ? ? ? 83 F8 02 7C 10";
+inline constexpr std::array<std::uint8_t, 5> kCurveInterpolationCallOriginal{{
+    0xE8, 0x9C, 0xCE, 0x9E, 0x00}};
 }  // namespace map_text
+
+// 3D-text (Render3d) facts. Two jump hooks in one function plus a
+// dlsym-resolved CString::operator+=(char) used by the preprocessing hook.
+// Kept separate from mapText for crash attribution.
+namespace text_3d {
+inline constexpr char kRender3dSymbol[] =
+    "_ZN11CBitmapFont8Render3dERK7CString14FontFormattingiRKN5Eigen6MatrixIfLi3ELi1ELi0ELi3ELi1EEES8_S8_ffPK7CCameraii";
+inline constexpr char kCStringAppendCharSymbol[] = "_ZN7CStringpLEc";
+inline constexpr std::size_t kRender3dSearchSize = 0x1000;
+
+inline constexpr char kPreprocessingPattern[] =
+    "0F B6 00 49 8B 9C C4 00 01 00 00 48 85 DB";
+inline constexpr std::array<std::uint8_t, 11> kPreprocessingOriginal{{
+    0x0F, 0xB6, 0x00, 0x49, 0x8B, 0x9C, 0xC4, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kPreprocessingContinuationOffset = 11;
+
+inline constexpr char kDrawingPattern[] =
+    "0F B6 00 49 8B 84 C4 00 01 00 00 48 85 C0";
+inline constexpr std::array<std::uint8_t, 11> kDrawingOriginal{{
+    0x0F, 0xB6, 0x00, 0x49, 0x8B, 0x84, 0xC4, 0x00, 0x01, 0x00, 0x00}};
+inline constexpr std::ptrdiff_t kDrawingContinuationOffset = 11;
+}  // namespace text_3d
 
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64

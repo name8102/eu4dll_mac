@@ -1,19 +1,23 @@
-# eu4dll_mac
+# eu4dll_multiplatform
 
-本项目是 [matanki-saito/EU4dll](https://github.com/matanki-saito/EU4dll) 项目的 macOS 实现，皆在使MAC玩家也能享受到原游戏不支持的本地化MOD。
+本仓库在 [macOS 实现](https://github.com/PoXiao-zero/eu4dll_mac) 的基础上，整合 EU4 本地化补丁的多平台架构，并已接入 Linux x86-64。感谢最初的 [matanki-saito/EU4dll](https://github.com/matanki-saito/EU4dll) 项目及 macOS 实现的贡献。
 
-在此非常感谢原项目的贡献，没有原项目也就没有这个项目。
+This repository extends the macOS implementation of EU4dll with a shared multi-platform architecture and native Linux x86-64 support. Thanks to the original EU4dll and macOS contributors.
 
-This project is the macOS implementation of the [matanki-saito/EU4dll](https://github.com/matanki-saito/EU4dll) project, aiming to allow Mac players to enjoy localization mods that are not supported by the vanilla game.
+- **Linux**：已验证原生 EU4 1.37.5 x86-64 的中文显示、输入编辑、拼音搜索、本地存档名、日期和东亚姓名。用户已确认这些功能正常；长期游玩测试待后续完成。构建、安装和验证范围见 [Linux 中文适配说明](docs/LINUX_ADAPTATION.zh-CN.md)。
+- **macOS**：支持 x86-64 EU4 1.37.x，现有 macOS 构建和安装方式保留。
+- **Windows**：原始实现见上游项目；本仓库的 Windows 适配仍未完成。
+- 原项目中使用 `¿` 字符开启颠倒姓名的功能未实现。
 
-Special thanks to the contributions of the original project; without it, this project wouldn't exist.
+Linux rendering, input/editing, search, local save filenames, dates and East Asian name formatting have passed focused checks and user acceptance on EU4 1.37.5. Extended gameplay validation remains pending. Existing macOS artifacts retain their platform-specific filenames.
 
-* 本项目支持 macOS x86-64 的 `EU4 1.37.x` 二进制；EU4 只有 x86-64 目标，发行商或发行渠道不影响二进制能力识别，其他游戏版本不受支持。
-* 原项目中使用 `¿` 字符开启颠倒姓名的功能未实现。
+## Cloud builds
 
-
-* This project supports macOS x86-64 `EU4 1.37.x` binaries. EU4 targets x86-64, and publisher or storefront labels do not affect binary capability identification; other game versions are unsupported.
-* The feature from the original project that uses the `¿` character to reverse names has not been implemented.
+Pushes to `main`, pull requests and manual runs trigger macOS x86-64 and Linux
+x86-64 builds and CTests. Successful jobs upload separate installable ZIPs.
+Linux uses Ubuntu 24.04 and strict compiler warnings. CI does not redistribute
+or execute the proprietary game binary; native-game probe evidence is recorded
+in the Linux adaptation documentation.
 
 ## Build and verification
 
@@ -23,8 +27,9 @@ cmake --build build --parallel 4 --target eu4dll_tests
 ctest --test-dir build --output-on-failure
 ```
 
-The release artifacts are macOS x86-64 only and explicitly target macOS 11.0
-instead of inheriting the build host SDK minimum. A first clean configure may
+The macOS artifacts target x86-64 and explicitly require macOS 11.0
+instead of inheriting the build host SDK minimum. Linux x86-64 artifacts and
+installation instructions are documented separately above. A first clean configure may
 fetch pinned cpp-pinyin 1.0.2; later test builds can reuse that source offline.
 
 Read-only capability preflight passed the same canonical registry of 55 patch
@@ -52,11 +57,11 @@ and localization behavior.
 
 ![东亚人名](img/east_asian_names.png)
 
-## 安装教程 Installation Guide
+## macOS 安装教程 / macOS Installation Guide
 
-在 [Releases](https://github.com/PoXiao-zero/eu4dll_mac/releases) 页面下载最新的压缩包，解压后您会看到 `libeu4dll_mac.dylib` (核心动态库)、[insert_dylib](https://github.com/tyilo/insert_dylib)（注入工具）、 `install.sh` (自动安装脚本)。
+在 [Releases](https://github.com/name8102/eu4dll_multiplatform/releases) 页面下载最新的压缩包，解压后您会看到 `libeu4dll_mac.dylib` (核心动态库)、[insert_dylib](https://github.com/tyilo/insert_dylib)（注入工具）、 `install.sh` (自动安装脚本)。
 
-Download the latest archive from the [Releases](https://github.com/PoXiao-zero/eu4dll_mac/releases) page. After extracting it, you will see `libeu4dll_mac.dylib` (core dynamic library), [insert_dylib](https://github.com/tyilo/insert_dylib) (injection tool) and `install.sh` (auto installation script).
+Download the latest archive from the [Releases](https://github.com/name8102/eu4dll_multiplatform/releases) page. After extracting it, you will see `libeu4dll_mac.dylib` (core dynamic library), [insert_dylib](https://github.com/tyilo/insert_dylib) (injection tool) and `install.sh` (auto installation script).
 
 ### 安装 Installation
 

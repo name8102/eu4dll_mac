@@ -1,3 +1,29 @@
+add_library(eu4dll_target_display_eu4_1_37_5_linux_x86_64 STATIC
+        display_formatting/display_patch.cpp display_formatting/display_patch.h)
+target_compile_features(eu4dll_target_display_eu4_1_37_5_linux_x86_64 PUBLIC cxx_std_17)
+target_include_directories(eu4dll_target_display_eu4_1_37_5_linux_x86_64 PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_display_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime eu4dll_localization_features)
+
+add_library(eu4dll_target_save_eu4_1_37_5_linux_x86_64 STATIC
+        save_filenames/save_patch.cpp save_filenames/save_patch.h)
+target_include_directories(eu4dll_target_save_eu4_1_37_5_linux_x86_64 PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_save_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime eu4dll_localization_features)
+
+add_library(eu4dll_target_input_eu4_1_37_5_linux_x86_64 STATIC
+        input/input_patch.cpp input/input_patch.h)
+target_include_directories(eu4dll_target_input_eu4_1_37_5_linux_x86_64 PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_input_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime eu4dll_platform_linux_input eu4dll_text_input)
+
+add_library(eu4dll_target_search_eu4_1_37_5_linux_x86_64 STATIC
+        localized_search/search_patch.cpp localized_search/search_patch.h
+        ${PROJECT_SOURCE_DIR}/src/pinyinHelper.cpp)
+target_include_directories(eu4dll_target_search_eu4_1_37_5_linux_x86_64 PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_search_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime eu4dll_localization_features cpp-pinyin dl)
+
 add_library(eu4dll_target_profile_eu4_1_37_5_linux_x86_64 STATIC
         profile.cpp
         profile.h
@@ -77,6 +103,17 @@ target_compile_features(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC cx
 target_include_directories(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC
         ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(eu4dll_target_map_text_eu4_1_37_5_linux_x86_64 PUBLIC
+        eu4dll_runtime
+        eu4dll_portable_features
+        eu4dll_target_profile_eu4_1_37_5_linux_x86_64)
+
+add_library(eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64 STATIC
+        text_3d/text_3d_patch.cpp
+        text_3d/text_3d_patch.h)
+target_compile_features(eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64 PUBLIC cxx_std_17)
+target_include_directories(eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64 PUBLIC
+        ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64 PUBLIC
         eu4dll_runtime
         eu4dll_portable_features
         eu4dll_target_profile_eu4_1_37_5_linux_x86_64)

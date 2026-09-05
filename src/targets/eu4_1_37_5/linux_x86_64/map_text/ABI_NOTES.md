@@ -7,9 +7,9 @@ Highest-risk migration stage: map labels, curved country names, and the
 one gate so a fault always bisects to one cluster:
 
 1. `fill-vertex-buffer` — preprocessing + drawing decoders.
-2. `add-name-area` — spacing hook + escape-preserving ToUpper + glyph count.
+2. `add-name-area` — spacing hook + final-byte append + escape-preserving ToUpper + glyph count.
 3. `add-nudged-names` — glyph count.
-4. `curve-text` — drawing decoder + two GetSize redirects + loop init.
+4. `curve-text` — drawing decoder + three GetSize redirects.
 
 Preflight validates every cluster before any commit. Commits run cluster
 by cluster and stop at the first failure (earlier clusters stay installed
@@ -19,9 +19,10 @@ atomic with verified rollback.
 Explicitly NOT ported: the reverted `CString::GetSize` allocation
 experiment (shrinking the vertex allocation while vertex writing kept the
 original layout faulted the stack in the legacy tree). The surviving
-GetSize→glyph-count redirects keep allocation and vertex writing in the
-same (glyph) units on both calls — length/count agreement is structural,
-not assumed.
+GetSize→glyph-count redirects in CurveText govern short-label orientation,
+loop bounds and the interpolation special case. Vertex allocation happens
+earlier in AddNameArea's drawable-glyph loop; none of these three calls
+allocates the vertex buffer.
 
 ## CurveText skip state: stateless derivation (no counter at all)
 
@@ -88,8 +89,9 @@ pops. Same audited shape as the tooltip preprocessing hook.
   hence `void`. Skips two payload bytes after `0x10..0x13`, uppercases
   the rest with `std::toupper` on unsigned values (no negative-char UB).
 - `CurveTextGetGlyphCount(const void*)`: same signature as
-  `CString::GetSize` (`rdi` in, count in `eax`). Both CurveText call
-  sites redirect to it, so allocation length and loop bounds agree.
+  `CString::GetSize` (`rdi` in, count in `eax`). All three CurveText call
+  sites redirect to it. The bridge uses general registers only because
+  the interpolation call has live XMM state.
 - Callee/slot addresses resolve through `Memory::ResolveSymbol` at
   install (fail-closed); the five CString slots clear on any failure.
 
@@ -111,9 +113,23 @@ pops. Same audited shape as the tooltip preprocessing hook.
 - Spacing: pattern `43 8A 44 25 00 88 85 78 FF FF FF 4C 89 F7 …`;
   expected 11 bytes; overwrite 11, continuation `+11`, final `+0x5c`
   (truncation path). Entry: `r13` = string base, `r12` = byte index,
-  `r15` = length. Plain byte → store + `return`; escape with room →
-  store 3 bytes, `r12 += 2`, `return`; escape at end → AppendString +
-  `final`.
+  `r15` = LAST VALID BYTE INDEX (length-1, not length). Plain byte →
+  store + `return`; escape disposition via `ClassifySpacingEscape`
+  (unit-tested truth table): `r12+2<r15` copies payload and continues
+  (`r12 += 2`), `r12+2==r15` copies the complete final payload then
+  takes `final`, `r12+2>r15` skips the payload read (truncated) and
+  takes `final` with the marker only. The old `jae`-only check dropped
+  the last CJK character of map names; the three-way form preserves the
+  legacy end-of-loop semantics. The helper is `general-regs-only` (no
+  XMM, verified in disassembly); `r12/r13/r15/rbp` survive its call
+  (callee-saved), `rdi/rsi` are saved/restored around it.
+  Its return type is uint8_t: consume `AL` with `movzx ecx,al`, never
+  the unspecified upper bits of EAX. The old EAX read could mistake the
+  final-character result and continue beyond the label. An actual ELF
+  spacing-loop harness reproduces this failure and validates the fix.
+  The four-byte scratch is cleared on each iteration. The native final
+  ASCII append at 0x1b5de81 uses a one-byte copy so the previous Han
+  payload cannot remain attached to the final ASCII character.
 - ToUpper call: pattern `E8 ? ? ? ? 31 C0 4C 8D 85 E8 FD FF FF`;
   expected `E8 25 F2 9E 00`; 5-byte CALL redirect (exact width).
 - Glyph count: pattern `0F B6 00 49 8B 84 C4 00 01 00 00 48 85 C0`;
@@ -128,19 +144,35 @@ pops. Same audited shape as the tooltip preprocessing hook.
 ### Cluster 4: CurveText (AddNameArea symbol, 0x2400 window; no dynsym)
 
 - Drawing: pattern `0F B6 00 4D 8B 2C C4 4D 85 ED`; expected 7 bytes;
-  overwrite 7, continuation `+7`. `edx = thread-local skipped`;
-  `rax += rdx` (glyph→byte map); decode into `eax` (guarded);
-  `skipped += 2`; `+0x6AC` rule; replay `mov r13,[r12+rax*8]`.
+  overwrite 7, continuation `+7`. Derive skipped bytes by walking `r14d`
+  logical characters from the base; advance `rax`, decode into `eax`
+  (guarded), apply the `+0x6AC` rule and replay `mov r13,[r12+rax*8]`.
 - Length calls: window pattern
   `E8 ? ? ? ? 41 89 C7 4C 89 E7 E8 ? ? ? ? 48 89 85 30 FF FF FF`;
   first call at match (`E8 C2 D0 9E 00`), second at match `+11`
   (`E8 B7 D0 9E 00`); both 5-byte CALL redirects to the glyph-count
-  bridge. Verified structurally: allocation (`r15d`) and loop bounds
-  use the same units.
-- Loop init: pattern `45 31 F6 31 DB 48 8B BD B8 FE FF FF`;
-  expected first 5 (`xor r14d; xor ebx`); overwrite 5 (exact fit, no
-  dead bytes), continuation `+5`. Replays both xors and zeroes the
-  thread-local counter.
+  bridge. The first result (`r15d`) selects short-label orientation;
+  the second determines loop bounds and the `count-1` denominator.
+- Third count call at 0x1b5f54d: `E8 9C CE 9E 00`, followed by
+  `F3 0F 10 35 ... 83 F8 02 7C 10`. Redirected to the same bridge.
+  This call selects the single-character interpolation special case.
+  Leaving it byte-based makes a single Han character take `0/(1-1)`,
+  yielding NaN vertices and an invisible label. The real ELF probe shows
+  old counts 1/1/3 and corrected counts 1/1/1.
+- Loop initialization stays unpatched; there is no shared skipped counter.
+
+## Slot lifetime vs unconfirmed rollback
+
+Hook continuation/callee slots follow the same fail-safe model as
+trampolines (`patch::MustRetainSlots`): a failed install clears slots
+only when its `BatchResult::rollbackState` is `NotNeeded` or `Complete`.
+On `Unconfirmed`, slots stay published because game code may still be
+inside a hook whose trampoline was intentionally retained.
+
+Per-cluster split: each cluster clears only its own slots on failure
+(`ClearFillSlots` etc.). Shared CString callee slots resolve once in
+`InstallMapText` and clear only when zero clusters installed; a later
+cluster failure never clears an installed earlier cluster's slots.
 
 ## Truncated-escape guards
 

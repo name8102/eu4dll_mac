@@ -108,16 +108,26 @@ const std::vector<std::string> &SearchEngine::FormsFor(const std::string &origin
 MatchResult SearchEngine::Match(bool exactOnly, const std::string &query,
                                 const std::string &originalName,
                                 const std::string &cleanedName) {
-    const std::string normalizedQuery = NormalizeQuery(query);
+    // Case folding is performed after decoding. Escaped payloads can contain
+    // ASCII uppercase bytes that are part of a Han code point, not letters.
+    const bool escapedQuery = IsEscapedQuery(query);
+    const std::string normalizedQuery = NormalizeQuery(escapedQuery
+        ? escaped_text::escaped_to_utf8(query).text : query);
     if (normalizedQuery.empty()) return {};
 
-    if (IsEscapedQuery(normalizedQuery)) {
-        const std::string normalizedName = NormalizeQuery(cleanedName);
+    if (escapedQuery || std::any_of(query.begin(), query.end(),
+                                    [](unsigned char c) { return c >= 0x80; })) {
+        // EU4's CleanForSorting/ToLower are byte-oriented and may already
+        // have damaged cleanedName. Use the untouched display name for Han.
+        const std::string normalizedName = NormalizeQuery(
+            escaped_text::escaped_to_utf8(originalName).text);
         if (normalizedQuery == normalizedName) return {true, -3};
         if (exactOnly) return {};
         const int score = SubstringScore(normalizedName, normalizedQuery);
         return score == -99 ? MatchResult{} : MatchResult{true, score};
     }
+
+    (void)cleanedName;
 
     int best = std::numeric_limits<int>::max();
     for (const auto &form : FormsFor(originalName)) {

@@ -81,4 +81,25 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_runtime)
     add_test(NAME eu4dll.target.linux_map_text
             COMMAND eu4dll_linux_map_text_tests)
+
+    add_executable(eu4dll_linux_text_3d_tests linux_text_3d_tests.cpp)
+    target_compile_features(eu4dll_linux_text_3d_tests PRIVATE cxx_std_17)
+    target_link_libraries(eu4dll_linux_text_3d_tests PRIVATE
+            eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64
+            eu4dll_target_profile_eu4_1_37_5_linux_x86_64
+            eu4dll_runtime)
+    add_test(NAME eu4dll.target.linux_text_3d
+            COMMAND eu4dll_linux_text_3d_tests)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_library(eu4dll_linux_live_probe SHARED linux_live_probe.cpp)
+    target_link_libraries(eu4dll_linux_live_probe PRIVATE eu4dll_portable_features dl)
+    add_executable(eu4dll_linux_display_tests linux_display_tests.cpp)
+    target_link_libraries(eu4dll_linux_display_tests PRIVATE eu4dll_target_display_eu4_1_37_5_linux_x86_64)
+    add_test(NAME eu4dll.target.linux_display COMMAND eu4dll_linux_display_tests)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_library(eu4dll_linux_curve_trace SHARED linux_curve_trace.cpp)
+    target_link_libraries(eu4dll_linux_curve_trace PRIVATE eu4dll_platform_linux eu4dll_portable_features)
 endif()

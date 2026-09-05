@@ -78,6 +78,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_target_tooltip_eu4_1_37_5_linux_x86_64
             eu4dll_target_localization_eu4_1_37_5_linux_x86_64
             eu4dll_target_map_text_eu4_1_37_5_linux_x86_64
+            eu4dll_target_text_3d_eu4_1_37_5_linux_x86_64
             eu4dll_bootstrap_linux
             eu4dll_linux)
         assert_target_exists(${required_target})
@@ -150,6 +151,9 @@ else()
             eu4dll_linux_tooltip_tests
             eu4dll_linux_localization_tests
             eu4dll_linux_map_text_tests
+            eu4dll_linux_text_3d_tests
             eu4dll_linux_platform_tests
+            eu4dll_linux_input_adapter_tests
+            eu4dll_linux_display_tests
             eu4dll_linux)
 endif()

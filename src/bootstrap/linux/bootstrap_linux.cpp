@@ -12,7 +12,11 @@
 #include "targets/eu4_1_37_5/linux_x86_64/tooltip_text/tooltip_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/localization_text/localization_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/map_text/map_text_patch.h"
-#include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
+#include "targets/eu4_1_37_5/linux_x86_64/text_3d/text_3d_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/input/input_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/save_filenames/save_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/display_formatting/display_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/localized_search/search_patch.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -23,10 +27,6 @@ namespace eu4dll::linux_bootstrap {
 namespace {
 
 namespace target = eu4dll::targets::eu4_1_37_5::linux_x86_64;
-
-void Log(const char *message) {
-    std::fprintf(stderr, "eu4dll_linux [bootstrap] %s\n", message);
-}
 
 }  // namespace
 
@@ -236,6 +236,92 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
     } else {
         log << " mapText=disabled";
     }
+
+    const char *enableText3D = std::getenv("EU4DLL_ENABLE_TEXT3D");
+    const bool text3DOn =
+        enableText3D != nullptr && std::strcmp(enableText3D, "1") == 0;
+    if (text3DOn) {
+        if (!mapTextOn) {
+            error = "text3D install failed: EU4DLL_ENABLE_TEXT3D=1 "
+                    "requires EU4DLL_ENABLE_MAP_TEXT=1";
+            return false;
+        }
+        const auto text3DPreflight =
+            target::text_3d::PreflightText3D(memory, s_liveAllocator);
+        if (!text3DPreflight) {
+            error = "text3D preflight failed: " +
+                    patch::FormatDiagnostic(text3DPreflight.diagnostic);
+            return false;
+        }
+        const auto text3DInstalled =
+            target::text_3d::InstallText3D(memory, s_liveAllocator);
+        if (!text3DInstalled) {
+            error = "text3D install failed: " +
+                    patch::FormatDiagnostic(text3DInstalled.diagnostic);
+            return false;
+        }
+        log << " text3D=" << text3DInstalled.diagnostic.message;
+    } else {
+        log << " text3D=disabled";
+    }
+
+    const auto enabled = [](const char *name) {
+        const char *value = std::getenv(name);
+        return value != nullptr && std::strcmp(value, "1") == 0;
+    };
+    if (enabled("EU4DLL_ENABLE_INPUT_IME")) {
+        if (!localizationOn) {
+            error = "input requires EU4DLL_ENABLE_LOCALIZATION_UTF8=1";
+            return false;
+        }
+        auto result = target::input::PreflightInput(memory, s_liveAllocator);
+        if (result) result = target::input::InstallInput(memory, s_liveAllocator);
+        if (!result) { error = patch::FormatDiagnostic(result.diagnostic); return false; }
+        log << " input=" << result.diagnostic.message;
+    } else log << " input=disabled";
+    if (enabled("EU4DLL_ENABLE_CLIPBOARD_PASTE")) {
+        if (!enabled("EU4DLL_ENABLE_INPUT_IME")) {
+            error = "clipboard requires EU4DLL_ENABLE_INPUT_IME=1";
+            return false;
+        }
+        auto result = target::input::PreflightClipboard(memory, s_liveAllocator);
+        if (result) result = target::input::InstallClipboard(memory, s_liveAllocator);
+        if (!result) { error = patch::FormatDiagnostic(result.diagnostic); return false; }
+        log << " clipboard=" << result.diagnostic.message;
+    } else log << " clipboard=disabled";
+
+    if (enabled("EU4DLL_ENABLE_PINYIN_SEARCH")) {
+        if (!localizationOn) {
+            error = "pinyin search requires EU4DLL_ENABLE_LOCALIZATION_UTF8=1";
+            return false;
+        }
+        auto result = target::search::PreflightSearch(memory, s_liveAllocator);
+        if (result) result = target::search::InstallSearch(memory, s_liveAllocator);
+        if (!result) { error = patch::FormatDiagnostic(result.diagnostic); return false; }
+        log << " search=" << result.diagnostic.message;
+    } else log << " search=disabled";
+
+    if (enabled("EU4DLL_ENABLE_SAVE_FILENAME")) {
+        if (!localizationOn) {
+            error = "save filenames require EU4DLL_ENABLE_LOCALIZATION_UTF8=1";
+            return false;
+        }
+        auto result = target::save_filenames::PreflightSave(memory, s_liveAllocator);
+        if (result) result = target::save_filenames::InstallSave(memory, s_liveAllocator);
+        if (!result) { error = patch::FormatDiagnostic(result.diagnostic); return false; }
+        log << " saveFilenames=" << result.diagnostic.message;
+    } else log << " saveFilenames=disabled";
+
+    if (enabled("EU4DLL_ENABLE_DISPLAY_FORMATTING")) {
+        if (!localizationOn) {
+            error = "display formatting requires EU4DLL_ENABLE_LOCALIZATION_UTF8=1";
+            return false;
+        }
+        auto result = target::display_formatting::PreflightDisplay(memory, s_liveAllocator);
+        if (result) result = target::display_formatting::InstallDisplay(memory, s_liveAllocator);
+        if (!result) { error = patch::FormatDiagnostic(result.diagnostic); return false; }
+        log << " displayFormatting=" << result.diagnostic.message;
+    } else log << " displayFormatting=disabled";
 
     report = log.str();
     return true;

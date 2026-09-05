@@ -14,7 +14,7 @@ four calibrated `base` patches through the refactored runtime architecture.
 
 ## Source Baseline
 
-- Canonical repository: `name8102/eu4dll_mac`, base branch `main`.
+- Canonical repository: `name8102/eu4dll_multiplatform`, base branch `main`.
 - Legacy Linux research/prototype: `name8102/eu4dll_linux`, branch `linux-port`,
   commit `102241a9116ce521170c75ce80e303698c4c427f`.
 - Supported Linux game target for this task: Steam native Linux x86-64

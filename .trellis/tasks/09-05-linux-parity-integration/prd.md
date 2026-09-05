@@ -11,3 +11,7 @@ All Linux migration children plus the stable foundation.
 - Investigate any delayed crash before declaring parity, especially legacy map-text regression history.
 - Produce final migration documentation. Remove obsolete prototype-only scaffolding only after canonical behavior is equivalent and verified.
 - Tests only for failures ordinary game testing cannot reliably expose.
+
+## Follow-up scope requested by user
+- Implement Linux save header/continue tooltip filename conversion, topbar year-month-day format and East Asian name order using calibrated sites.
+- Preserve working input/search/map paths; verify actual ELF calls before deployment.

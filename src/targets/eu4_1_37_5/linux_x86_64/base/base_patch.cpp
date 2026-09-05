@@ -168,7 +168,10 @@ patch::BatchResult InstallBase(patch::Memory &memory,
         batch.Add(std::move(description));
     }
     auto result = batch.Commit();
-    if (!result) {
+    // Unconfirmed rollback may still have game code inside the hook whose
+    // trampoline the batch kept mapped: retain the slot (same fail-safe
+    // model as trampoline retention).
+    if (!result && !patch::MustRetainSlots(result)) {
         ParseFontFileReturnSlot() = 0;
     }
     return result;
