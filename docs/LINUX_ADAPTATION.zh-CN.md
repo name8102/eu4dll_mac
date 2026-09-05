@@ -4,6 +4,9 @@
 `af115d3b0e54a05eca0198ed569db90ca225728afda03b5ac4ded251520a7ce3`。
 其他二进制在安装前拒绝打补丁。中文字体与本地化内容仍由中文模组提供。
 
+当前预发布版本：[v0.1.0-preview.1](https://github.com/name8102/eu4dll_multiplatform/releases/tag/v0.1.0-preview.1)。
+[云端验证](https://github.com/name8102/eu4dll_multiplatform/actions/runs/33954038894)通过 Linux 23 项和 macOS 20 项测试；长期游玩验证待用户后续完成。
+
 ## 当前结果（2026-09-05）
 
 | 功能 | 实现与证据 |

@@ -106,10 +106,33 @@ directory; only its eu4.orig was a read-only link to the verified game ELF.
 The local final source rebuild passes 23 CTests and the system-SDL actual ELF
 probe. Its library digest is `4095febe93d9d82096cac0e846eef8bfc54ae0ac3508958312c2ba223dc0c776`;
 the already user-accepted installed library remains the earlier recorded digest.
-Cloud results and release URL will be recorded after the first run completes.
+Final cloud results and release URL are recorded below.
 
 First cloud run `33953803936` passed Linux but exposed an obsolete Memory::Write
 override in the macOS read-only binary probe. Updated it to WriteResult while
 retaining its unconditional no-write behavior. Linux cloud package from that
 run also passed the local actual-game ELF probe. Retrying both platforms with
 the corrected macOS test adapter before publishing.
+
+## Published checkpoint
+
+- Code/tag commit: `67659604a6090fd9fcb49a8cdde701f60a81aca3`.
+- Cloud run: https://github.com/name8102/eu4dll_multiplatform/actions/runs/33954038894
+- Linux x86-64: strict build, 23 CTests, artifact checks and ZIP packaging pass.
+- macOS x86-64: build, 20 CTests, architecture/minimum-OS/resource checks,
+  ad-hoc artifact signing and ZIP packaging pass.
+- Linux cloud library SHA-256:
+  `424c1c93740ae6a58647f99064aec8aec4c6ea73be2d6b602d7a04e408b4471a`.
+  It is byte-identical to the cloud library that passed the local real-EU4 probe.
+- Published prerelease:
+  https://github.com/name8102/eu4dll_multiplatform/releases/tag/v0.1.0-preview.1
+- Release assets are the ZIPs from that exact cloud run, plus SHA256SUMS.txt;
+  GitHub-reported upload digests match local package hashes. Tag resolves to the
+  verified code commit. No proprietary game binary or local prototype included.
+- Linux ZIP SHA-256: `f3c6344ba6f679e5973a769e470e9c8eda1f3f8964862177d8566255cf4a7272`.
+- macOS ZIP SHA-256: `7cb11da89b56f4798c584f3698c7d5e02c952287b55fee620abd4e53f3a9409f`.
+
+Implementation and publication are closed out. Extended user gameplay remains
+pending, so the release is explicitly a prerelease and the broader stability
+acceptance task remains open. The already accepted local installation was not
+replaced with the cloud package during release verification.
