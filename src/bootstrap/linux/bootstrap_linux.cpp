@@ -10,6 +10,7 @@
 #include "targets/eu4_1_37_5/linux_x86_64/text_layout/layout_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/main_text/main_text_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/tooltip_text/tooltip_patch.h"
+#include "targets/eu4_1_37_5/linux_x86_64/localization_text/localization_patch.h"
 #include "targets/eu4_1_37_5/linux_x86_64/target_facts.h"
 
 #include <cstdio>
@@ -177,6 +178,34 @@ bool BootstrapLinuxBase(std::string &error, std::string &report) {
         log << " tooltip=" << tooltipInstalled.diagnostic.message;
     } else {
         log << " tooltip=disabled";
+    }
+
+    const char *enableLocalization = std::getenv("EU4DLL_ENABLE_LOCALIZATION_UTF8");
+    const bool localizationOn =
+        enableLocalization != nullptr && std::strcmp(enableLocalization, "1") == 0;
+    if (localizationOn) {
+        if (!mainTextOn) {
+            error = "localization install failed: EU4DLL_ENABLE_LOCALIZATION_UTF8=1 "
+                    "requires EU4DLL_ENABLE_MAIN_TEXT=1";
+            return false;
+        }
+        const auto localizationPreflight =
+            target::localization_utf8::PreflightLocalization(memory, s_liveAllocator);
+        if (!localizationPreflight) {
+            error = "localization preflight failed: " +
+                    patch::FormatDiagnostic(localizationPreflight.diagnostic);
+            return false;
+        }
+        const auto localizationInstalled =
+            target::localization_utf8::InstallLocalization(memory, s_liveAllocator);
+        if (!localizationInstalled) {
+            error = "localization install failed: " +
+                    patch::FormatDiagnostic(localizationInstalled.diagnostic);
+            return false;
+        }
+        log << " localization=" << localizationInstalled.diagnostic.message;
+    } else {
+        log << " localization=disabled";
     }
 
     report = log.str();

@@ -69,18 +69,34 @@ patch::Address &DrawingBypassSlot() {
     "je 4f\n"                                                            \
     "jmp 7f\n"                                                           \
     "1:\n"                                                               \
-    "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
+    "cmp byte ptr [rdx + 1], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "cmp byte ptr [rdx + 2], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
     "jmp 5f\n"                                                           \
     "2:\n"                                                               \
-    "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
+    "cmp byte ptr [rdx + 1], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "cmp byte ptr [rdx + 2], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
     "sub " indexRegister ", %c[shift2]\n"                                \
     "jmp 5f\n"                                                           \
     "3:\n"                                                               \
-    "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
+    "cmp byte ptr [rdx + 1], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "cmp byte ptr [rdx + 2], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
     "add " indexRegister ", %c[shift3]\n"                                \
     "jmp 5f\n"                                                           \
     "4:\n"                                                               \
-    "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
+    "cmp byte ptr [rdx + 1], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "cmp byte ptr [rdx + 2], 0\n"                                     \
+        "je 7f\n"                                                          \
+        "movzx " indexRegister ", word ptr [" addressRegister " + 1]\n"      \
     "add " indexRegister ", %c[shift4]\n"
 
 #define EU4DLL_LINUX_ESCAPE_OPERANDS                                            \

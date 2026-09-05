@@ -7,8 +7,10 @@ namespace eu4dll::linux_bootstrap {
 // Testable Linux bootstrap flow without process-wide side effects.
 // Always validates the exact target and installs base. Text layout
 // installs additionally when EU4DLL_ENABLE_TEXT_LAYOUT=1, main text
-// when EU4DLL_ENABLE_MAIN_TEXT=1 (requiring the layout gate), and tooltip
-// when EU4DLL_ENABLE_TOOLTIP_TEXT=1 (requiring the main-text gate).
+// when EU4DLL_ENABLE_MAIN_TEXT=1 (requiring the layout gate), tooltip
+// when EU4DLL_ENABLE_TOOLTIP_TEXT=1 (requiring the main-text gate), and
+// UTF-8 localization when EU4DLL_ENABLE_LOCALIZATION_UTF8=1 (requiring
+// the main-text gate).
 // These are migration-time gates; final integration owns the permanent
 // feature set.
 // All steps are fail-closed: unknown ELF binaries refuse mutation before any

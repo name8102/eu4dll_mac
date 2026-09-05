@@ -63,4 +63,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             eu4dll_runtime)
     add_test(NAME eu4dll.target.linux_tooltip
             COMMAND eu4dll_linux_tooltip_tests)
+
+    add_executable(eu4dll_linux_localization_tests linux_localization_tests.cpp)
+    target_compile_features(eu4dll_linux_localization_tests PRIVATE cxx_std_17)
+    target_link_libraries(eu4dll_linux_localization_tests PRIVATE
+            eu4dll_target_localization_eu4_1_37_5_linux_x86_64
+            eu4dll_target_profile_eu4_1_37_5_linux_x86_64
+            eu4dll_runtime)
+    add_test(NAME eu4dll.target.linux_localization
+            COMMAND eu4dll_linux_localization_tests)
 endif()

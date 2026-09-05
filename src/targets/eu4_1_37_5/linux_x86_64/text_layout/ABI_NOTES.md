@@ -109,3 +109,22 @@ is published. Jump payloads are 5-byte `E9 rel32`; bytes after the jump up
 to the calibrated overwrite width are unreachable dead bytes, never
 fall-through code. Failed installs release staged trampolines, clear
 published slots, and mutate nothing.
+
+## Truncated-escape guard (crash fix)
+
+Every decoder arm checks both payload bytes for NUL before the word read:
+
+```asm
+cmp byte ptr [rdx + 1], 0
+je 7f            ; truncated escape -> plain-byte fallback
+cmp byte ptr [rdx + 2], 0
+je 7f
+movzx reg, word ptr [rdx + 1]
+```
+
+Rationale: a marker at the end of a string would otherwise feed NUL-adjacent
+bytes into the index, producing a wild glyph-table load downstream
+(SIGSEGV observed in `GetActualRequiredSize` via map-name generation once
+localization started feeding newly-converted content). The fallback treats
+the marker as a plain byte, matching stock handling; well-formed input never
+touches these branches.

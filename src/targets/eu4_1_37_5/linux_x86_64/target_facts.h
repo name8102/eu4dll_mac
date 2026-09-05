@@ -207,4 +207,18 @@ inline constexpr std::array<std::uint8_t, 11> kDrawingOriginal{{
 inline constexpr std::ptrdiff_t kDrawingContinuationOffset = 11;
 }  // namespace tooltip
 
+// Localization UTF-8 ingestion facts. One call redirect inside
+// LocalizeYmlAddKey: the value-conversion call becomes the portable
+// localization_loading conversion (same function the canonical macOS
+// adapter calls). No pinyin/search facts here.
+namespace localization_utf8 {
+inline constexpr char kLocalizeYmlAddKeySymbol[] =
+    "_Z17LocalizeYmlAddKeyRK11CUTF8StringS1_iiPv";
+inline constexpr std::size_t kLocalizeYmlAddKeySearchSize = 0x135;
+inline constexpr char kValueConversionPattern[] = "BE A0 83 43 03 E8 80 66 1E 00";
+inline constexpr std::ptrdiff_t kValueConversionMutationOffset = 5;
+inline constexpr std::array<std::uint8_t, 5> kValueConversionOriginal{{
+    0xE8, 0x80, 0x66, 0x1E, 0x00}};
+}  // namespace localization_utf8
+
 }  // namespace eu4dll::targets::eu4_1_37_5::linux_x86_64
