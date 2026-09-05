@@ -52,6 +52,8 @@ public:
     explicit MachOFileMemory(const MachOFile &file) : file_(file) {}
 
     std::optional<patch::MemoryRegion> MainModule(std::string &error) const override;
+    std::vector<patch::MemoryRegion> MainModuleRegions(
+        patch::RegionPurpose purpose, std::string &error) const override;
     std::optional<patch::Address> ResolveSymbol(const std::string &name,
                                                 std::string &error) const override;
     bool Read(patch::Address address, std::uint8_t *output, std::size_t size,

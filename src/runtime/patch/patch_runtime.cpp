@@ -181,15 +181,22 @@ LocateResult PatchRuntime::Locate(const PatternLocation &location, const std::st
         return result;
     }
 
-    MemoryRegion region;
+    // Resolves the candidate search regions. Main-module scans aggregate every
+    // executable region so ELF images with unmapped gaps never read fabricated
+    // bytes; symbol scans stay bounded to the resolved symbol window.
+    std::vector<MemoryRegion> regions;
     if (location.scope.kind == SearchScopeKind::MainModule) {
-        const auto mainModule = memory_.MainModule(error);
-        if (!mainModule) {
+        regions = memory_.MainModuleRegions(RegionPurpose::ExecutableSearch, error);
+        if (!error.empty()) {
             result.diagnostic.operation = PatchOperation::ResolveSearchScope;
             result.diagnostic.message = error;
             return result;
         }
-        region = *mainModule;
+        if (regions.empty()) {
+            result.diagnostic.operation = PatchOperation::ResolveSearchScope;
+            result.diagnostic.message = "no executable search regions were reported";
+            return result;
+        }
     } else {
         if (location.scope.symbol.empty() || location.scope.maxSize == 0) {
             result.diagnostic.operation = PatchOperation::ValidateDescription;
@@ -202,73 +209,83 @@ LocateResult PatchRuntime::Locate(const PatternLocation &location, const std::st
             result.diagnostic.message = error;
             return result;
         }
-        region = MemoryRegion{*symbol, location.scope.maxSize, location.scope.symbol};
+        regions.push_back(MemoryRegion{*symbol, location.scope.maxSize, location.scope.symbol});
     }
 
-    if (region.size != 0) {
-        const auto lastOffset = static_cast<std::uintmax_t>(region.size - 1);
-        const auto available = static_cast<std::uintmax_t>(
-            std::numeric_limits<Address>::max() - region.address);
-        if (lastOffset > available) {
-            result.diagnostic.operation = PatchOperation::ResolveSearchScope;
-            result.diagnostic.message = "search region overflows the address space";
-            return result;
+    for (const auto &region : regions) {
+        if (region.size != 0) {
+            const auto lastOffset = static_cast<std::uintmax_t>(region.size - 1);
+            const auto available = static_cast<std::uintmax_t>(
+                std::numeric_limits<Address>::max() - region.address);
+            if (lastOffset > available) {
+                result.diagnostic.operation = PatchOperation::ResolveSearchScope;
+                result.diagnostic.message = "search region overflows the address space";
+                return result;
+            }
         }
     }
 
     result.diagnostic.operation = PatchOperation::LocatePattern;
-    if (region.size < pattern.bytes.size()) {
-        result.diagnostic.match = MatchStatus::NotFound;
-        result.diagnostic.message = "search region is smaller than the pattern";
-        return result;
-    }
 
-    std::vector<std::uint8_t> haystack(region.size);
-    if (!memory_.Read(region.address, haystack.data(), haystack.size(), error)) {
-        result.diagnostic.message = error;
-        return result;
-    }
+    const auto scanRegion = [&](const MemoryRegion &region,
+                                std::vector<Address> &matches) -> bool {
+        if (region.size < pattern.bytes.size()) {
+            return true;  // Too small: contributes zero matches, not a failure.
+        }
+        std::vector<std::uint8_t> haystack(region.size);
+        if (!memory_.Read(region.address, haystack.data(), haystack.size(), error)) {
+            result.diagnostic.message = error;
+            return false;
+        }
+        const std::size_t lastStart = haystack.size() - pattern.bytes.size();
+        for (std::size_t start = 0; start <= lastStart; ++start) {
+            bool matched = true;
+            for (std::size_t index = 0; index < pattern.bytes.size(); ++index) {
+                const int expected = pattern.bytes[index];
+                if (expected >= 0 && haystack[start + index] != expected) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (!matched) {
+                continue;
+            }
+            for (std::size_t index = 0; index < pattern.stringDisplacements.size(); ++index) {
+                const std::size_t displacementIndex = pattern.stringDisplacements[index];
+                std::int32_t displacement = 0;
+                std::memcpy(&displacement, haystack.data() + start + displacementIndex,
+                            sizeof(displacement));
+                const auto rip = AddOffset(region.address, static_cast<std::ptrdiff_t>(start + displacementIndex + 4));
+                const auto stringAddress = rip ? AddRelative(*rip, displacement) : std::nullopt;
+                if (!stringAddress) {
+                    matched = false;
+                    break;
+                }
+                std::string actual;
+                if (!memory_.ReadCString(*stringAddress,
+                                         location.referencedStrings[index].size() + 1,
+                                         actual, error) || actual != location.referencedStrings[index]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (!matched) {
+                continue;
+            }
+            matches.push_back(region.address + start);
+            if (!location.requireUnique) {
+                return true;
+            }
+        }
+        return true;
+    };
 
     std::vector<Address> matches;
-    const std::size_t lastStart = haystack.size() - pattern.bytes.size();
-    for (std::size_t start = 0; start <= lastStart; ++start) {
-        bool matched = true;
-        for (std::size_t index = 0; index < pattern.bytes.size(); ++index) {
-            const int expected = pattern.bytes[index];
-            if (expected >= 0 && haystack[start + index] != expected) {
-                matched = false;
-                break;
-            }
+    for (const auto &region : regions) {
+        if (!scanRegion(region, matches)) {
+            return result;
         }
-        if (!matched) {
-            continue;
-        }
-
-        for (std::size_t index = 0; index < pattern.stringDisplacements.size(); ++index) {
-            const std::size_t displacementIndex = pattern.stringDisplacements[index];
-            std::int32_t displacement = 0;
-            std::memcpy(&displacement, haystack.data() + start + displacementIndex,
-                        sizeof(displacement));
-            const auto rip = AddOffset(region.address, static_cast<std::ptrdiff_t>(start + displacementIndex + 4));
-            const auto stringAddress = rip ? AddRelative(*rip, displacement) : std::nullopt;
-            if (!stringAddress) {
-                matched = false;
-                break;
-            }
-            std::string actual;
-            if (!memory_.ReadCString(*stringAddress,
-                                     location.referencedStrings[index].size() + 1,
-                                     actual, error) || actual != location.referencedStrings[index]) {
-                matched = false;
-                break;
-            }
-        }
-        if (!matched) {
-            continue;
-        }
-
-        matches.push_back(region.address + start);
-        if (!location.requireUnique) {
+        if (!location.requireUnique && !matches.empty()) {
             break;
         }
     }

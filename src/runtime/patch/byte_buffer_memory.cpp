@@ -84,6 +84,17 @@ std::optional<MemoryRegion> ByteBufferMemory::MainModule(std::string &error) con
     return MemoryRegion{baseAddress_, bytes_.size(), regionName_};
 }
 
+std::vector<MemoryRegion> ByteBufferMemory::MainModuleRegions(
+    RegionPurpose purpose, std::string &error) const {
+    if (purpose != RegionPurpose::ExecutableSearch) {
+        error.clear();
+        return {};
+    }
+    auto region = MainModule(error);
+    if (!region) return {};
+    return {*region};
+}
+
 std::optional<Address> ByteBufferMemory::ResolveSymbol(const std::string &symbol,
                                                        std::string &error) const {
     const auto found = symbols_.find(symbol);

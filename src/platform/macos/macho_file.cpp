@@ -385,6 +385,17 @@ std::optional<patch::MemoryRegion> MachOFileMemory::MainModule(std::string &) co
                                static_cast<std::size_t>(file_.ImageSize()), "Mach-O image"};
 }
 
+std::vector<patch::MemoryRegion> MachOFileMemory::MainModuleRegions(
+    patch::RegionPurpose purpose, std::string &error) const {
+    if (purpose != patch::RegionPurpose::ExecutableSearch) {
+        error.clear();
+        return {};
+    }
+    auto region = MainModule(error);
+    if (!region) return {};
+    return {*region};
+}
+
 std::optional<patch::Address> MachOFileMemory::ResolveSymbol(const std::string &name,
                                                              std::string &error) const {
     const auto symbol = file_.ResolveSymbol(name);

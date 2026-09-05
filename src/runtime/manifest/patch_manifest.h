@@ -11,12 +11,37 @@
 
 namespace eu4dll::manifest {
 
-inline constexpr std::uint32_t kSchemaVersion = 1;
+inline constexpr std::uint32_t kSchemaVersion = 2;
+inline constexpr std::uint32_t kSchemaVersionV1 = 1;
 inline constexpr std::uint32_t kDescriptorSetVersion = 1;
 
 enum class Architecture : std::uint8_t {
     X86_64 = 1,
 };
+
+enum class ImageIdentityKind : std::uint8_t {
+    MachOUuid = 1,
+    FileSha256 = 2,
+};
+
+struct ImageIdentity {
+    ImageIdentityKind kind = ImageIdentityKind::MachOUuid;
+    std::vector<std::uint8_t> value;
+};
+
+inline bool operator==(const ImageIdentity &lhs, const ImageIdentity &rhs) {
+    return lhs.kind == rhs.kind && lhs.value == rhs.value;
+}
+
+inline bool operator!=(const ImageIdentity &lhs, const ImageIdentity &rhs) {
+    return !(lhs == rhs);
+}
+
+ImageIdentity MakeMachOUuidIdentity(const std::array<std::uint8_t, 16> &uuid);
+ImageIdentity MakeFileSha256Identity(const std::array<std::uint8_t, 32> &digest);
+bool ParseSha256Hex(const std::string &hex, std::array<std::uint8_t, 32> &digest);
+std::string ToHex(const std::vector<std::uint8_t> &bytes);
+const char *ToString(ImageIdentityKind kind);
 
 struct PatchEntry {
     std::string id;
@@ -32,11 +57,16 @@ struct PatchEntry {
 struct PatchManifest {
     std::uint32_t schemaVersion = kSchemaVersion;
     std::uint32_t descriptorSetVersion = kDescriptorSetVersion;
-    std::array<std::uint8_t, 16> uuid{};
+    ImageIdentity identity;
     Architecture architecture = Architecture::X86_64;
     std::string gameVersion;
     std::uint64_t versionRva = 0;
     std::vector<PatchEntry> entries;
+
+    // Backward-compatible accessors for macOS UUID manifests (schema v1).
+    // New code should use `identity` with an explicit kind instead.
+    std::array<std::uint8_t, 16> Uuid() const;
+    void SetUuid(const std::array<std::uint8_t, 16> &uuid);
 };
 
 struct ValidatedPatchSite {
@@ -74,6 +104,10 @@ private:
                                    std::string &error);
 [[nodiscard]] bool ReadFile(const std::string &path, PatchManifest &manifest,
                             std::string &error);
+[[nodiscard]] LoadedImageValidation ValidateLoadedImage(
+    const PatchManifest &manifest, const ImageIdentity &loadedIdentity,
+    const std::string &loadedVersion, patch::Address loadedImageBase,
+    patch::Memory &memory);
 [[nodiscard]] LoadedImageValidation ValidateLoadedImage(
     const PatchManifest &manifest, const std::array<std::uint8_t, 16> &loadedUuid,
     const std::string &loadedVersion, patch::Address loadedImageBase,

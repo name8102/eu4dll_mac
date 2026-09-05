@@ -15,3 +15,18 @@ target_compile_features(eu4dll_patch_manifest_tests PRIVATE cxx_std_17)
 target_link_libraries(eu4dll_patch_manifest_tests PRIVATE eu4dll_runtime)
 
 add_test(NAME eu4dll.patch_manifest COMMAND eu4dll_patch_manifest_tests)
+
+add_executable(eu4dll_branch_resolver_tests branch_resolver_tests.cpp)
+target_compile_features(eu4dll_branch_resolver_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_branch_resolver_tests PRIVATE eu4dll_runtime)
+add_test(NAME eu4dll.patch.branch_resolver COMMAND eu4dll_branch_resolver_tests)
+
+add_executable(eu4dll_patch_batch_tests patch_batch_tests.cpp)
+target_compile_features(eu4dll_patch_batch_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_patch_batch_tests PRIVATE eu4dll_runtime)
+add_test(NAME eu4dll.patch.batch COMMAND eu4dll_patch_batch_tests)
+
+add_executable(eu4dll_multi_region_tests multi_region_tests.cpp)
+target_compile_features(eu4dll_multi_region_tests PRIVATE cxx_std_17)
+target_link_libraries(eu4dll_multi_region_tests PRIVATE eu4dll_runtime)
+add_test(NAME eu4dll.patch.multi_region COMMAND eu4dll_multi_region_tests)

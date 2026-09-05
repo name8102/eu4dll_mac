@@ -108,6 +108,17 @@ std::optional<patch::MemoryRegion> MachProcessMemory::MainModule(std::string &er
         static_cast<std::size_t>(size), "main-module::__TEXT"};
 }
 
+std::vector<patch::MemoryRegion> MachProcessMemory::MainModuleRegions(
+    patch::RegionPurpose purpose, std::string &error) const {
+    if (purpose != patch::RegionPurpose::ExecutableSearch) {
+        error.clear();
+        return {};
+    }
+    auto region = MainModule(error);
+    if (!region) return {};
+    return {*region};
+}
+
 std::optional<patch::Address> MachProcessMemory::ResolveSymbol(const std::string &symbol,
                                                               std::string &error) const {
     void *address = dlsym(RTLD_DEFAULT, symbol.c_str());

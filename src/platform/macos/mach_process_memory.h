@@ -13,6 +13,8 @@ public:
     bool ReadCString(patch::Address address, std::size_t maxSize, std::string &value,
                      std::string &error) const override;
     std::optional<patch::MemoryRegion> MainModule(std::string &error) const override;
+    std::vector<patch::MemoryRegion> MainModuleRegions(
+        patch::RegionPurpose purpose, std::string &error) const override;
     std::optional<patch::Address> ResolveSymbol(const std::string &symbol,
                                                 std::string &error) const override;
 };

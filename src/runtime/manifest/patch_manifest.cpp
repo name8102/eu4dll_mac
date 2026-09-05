@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <sys/stat.h>
 #include <type_traits>
 #include <utility>
@@ -18,6 +19,7 @@ constexpr std::array<std::uint8_t, 8> kMagic{{'E', 'U', '4', 'P', 'M', 'F', 0, 1
 constexpr std::size_t kMaximumEntries = 4096;
 constexpr std::size_t kMaximumString = 4096;
 constexpr std::size_t kMaximumExpectedBytes = 256;
+constexpr std::size_t kMaximumIdentityBytes = 64;
 
 template <typename T>
 void AppendInteger(std::vector<std::uint8_t> &output, T value) {
@@ -80,8 +82,31 @@ private:
     std::size_t offset_ = 0;
 };
 
+bool IsSupportedGameVersion(const std::string &version) {
+    // Short installer form: "1.37.5". Full in-memory form may be
+    // "EU4 v1.37.5.0 Inca"; accept any 1.37.x marker without hard-coding the
+    // patch, build, or codename text.
+    if (version.rfind("1.37.", 0) == 0) return true;
+    return version.find("v1.37.") != std::string::npos;
+}
+
+bool GameVersionsMatch(const std::string &manifestVersion,
+                       const std::string &actualVersion) {
+    if (manifestVersion == actualVersion) return true;
+    // Installer records the short "1.37.5" while the loaded image may expose
+    // the full "EU4 v1.37.5.0 Inca" string. Accept containment in either
+    // direction once both sides are known 1.37.x markers.
+    if (!IsSupportedGameVersion(manifestVersion) ||
+        !IsSupportedGameVersion(actualVersion)) {
+        return false;
+    }
+    return actualVersion.find(manifestVersion) != std::string::npos ||
+           manifestVersion.find(actualVersion) != std::string::npos;
+}
+
 bool Validate(const PatchManifest &manifest, std::string &error) {
-    if (manifest.schemaVersion != kSchemaVersion) {
+    if (manifest.schemaVersion != kSchemaVersion &&
+        manifest.schemaVersion != kSchemaVersionV1) {
         error = "unsupported manifest schema version";
         return false;
     }
@@ -89,11 +114,28 @@ bool Validate(const PatchManifest &manifest, std::string &error) {
         error = "unsupported descriptor-set version";
         return false;
     }
+    switch (manifest.identity.kind) {
+        case ImageIdentityKind::MachOUuid:
+            if (manifest.identity.value.size() != 16) {
+                error = "Mach-O UUID identity must be 16 bytes";
+                return false;
+            }
+            break;
+        case ImageIdentityKind::FileSha256:
+            if (manifest.identity.value.size() != 32) {
+                error = "file SHA-256 identity must be 32 bytes";
+                return false;
+            }
+            break;
+        default:
+            error = "unsupported manifest identity kind";
+            return false;
+    }
     if (manifest.architecture != Architecture::X86_64) {
         error = "unsupported manifest architecture";
         return false;
     }
-    if (manifest.gameVersion.rfind("1.37.", 0) != 0) {
+    if (!IsSupportedGameVersion(manifest.gameVersion)) {
         error = "manifest game version is not EU4 1.37.x";
         return false;
     }
@@ -126,22 +168,131 @@ bool Validate(const PatchManifest &manifest, std::string &error) {
     return true;
 }
 
+bool AppendIdentity(std::vector<std::uint8_t> &output,
+                    const ImageIdentity &identity, std::string &error) {
+    if (identity.value.empty() || identity.value.size() > kMaximumIdentityBytes) {
+        error = "manifest identity value is empty or too long";
+        return false;
+    }
+    AppendInteger(output, static_cast<std::uint8_t>(identity.kind));
+    output.insert(output.end(), 7, 0);
+    AppendInteger<std::uint32_t>(
+        output, static_cast<std::uint32_t>(identity.value.size()));
+    output.insert(output.end(), identity.value.begin(), identity.value.end());
+    return true;
+}
+
+bool ReadIdentity(Reader &reader, ImageIdentity &identity, std::string &error) {
+    std::uint8_t kind = 0;
+    std::array<std::uint8_t, 7> reserved{};
+    std::uint32_t valueSize = 0;
+    if (!reader.Integer(kind) || !reader.Bytes(reserved.data(), reserved.size()) ||
+        reserved != std::array<std::uint8_t, 7>{} || !reader.Integer(valueSize)) {
+        error = "truncated manifest identity";
+        return false;
+    }
+    if (kind != static_cast<std::uint8_t>(ImageIdentityKind::MachOUuid) &&
+        kind != static_cast<std::uint8_t>(ImageIdentityKind::FileSha256)) {
+        error = "unsupported manifest identity kind";
+        return false;
+    }
+    if (valueSize == 0 || valueSize > kMaximumIdentityBytes ||
+        reader.remaining() < valueSize) {
+        error = "invalid manifest identity size";
+        return false;
+    }
+    identity.kind = static_cast<ImageIdentityKind>(kind);
+    identity.value.resize(valueSize);
+    if (!reader.Bytes(identity.value.data(), valueSize)) {
+        error = "truncated manifest identity value";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
+
+ImageIdentity MakeMachOUuidIdentity(const std::array<std::uint8_t, 16> &uuid) {
+    ImageIdentity identity;
+    identity.kind = ImageIdentityKind::MachOUuid;
+    identity.value.assign(uuid.begin(), uuid.end());
+    return identity;
+}
+
+ImageIdentity MakeFileSha256Identity(const std::array<std::uint8_t, 32> &digest) {
+    ImageIdentity identity;
+    identity.kind = ImageIdentityKind::FileSha256;
+    identity.value.assign(digest.begin(), digest.end());
+    return identity;
+}
+
+bool ParseSha256Hex(const std::string &hex, std::array<std::uint8_t, 32> &digest) {
+    if (hex.size() != 64) return false;
+    const auto nibble = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    for (std::size_t i = 0; i < 32; ++i) {
+        const int hi = nibble(hex[2 * i]);
+        const int lo = nibble(hex[2 * i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        digest[i] = static_cast<std::uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
+std::string ToHex(const std::vector<std::uint8_t> &bytes) {
+    static constexpr char kDigits[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(bytes.size() * 2);
+    for (const auto byte : bytes) {
+        out.push_back(kDigits[byte >> 4]);
+        out.push_back(kDigits[byte & 0xF]);
+    }
+    return out;
+}
+
+const char *ToString(ImageIdentityKind kind) {
+    switch (kind) {
+        case ImageIdentityKind::MachOUuid:
+            return "macho-uuid";
+        case ImageIdentityKind::FileSha256:
+            return "file-sha256";
+    }
+    return "unknown";
+}
+
+std::array<std::uint8_t, 16> PatchManifest::Uuid() const {
+    std::array<std::uint8_t, 16> uuid{};
+    if (identity.kind == ImageIdentityKind::MachOUuid &&
+        identity.value.size() == uuid.size()) {
+        std::copy(identity.value.begin(), identity.value.end(), uuid.begin());
+    }
+    return uuid;
+}
+
+void PatchManifest::SetUuid(const std::array<std::uint8_t, 16> &uuid) {
+    identity = MakeMachOUuidIdentity(uuid);
+}
 
 bool Serialize(const PatchManifest &manifest, std::vector<std::uint8_t> &output,
                std::string &error) {
-    if (!Validate(manifest, error)) return false;
+    PatchManifest normalized = manifest;
+    normalized.schemaVersion = kSchemaVersion;
+    if (!Validate(normalized, error)) return false;
     output.clear();
     output.insert(output.end(), kMagic.begin(), kMagic.end());
-    AppendInteger(output, manifest.schemaVersion);
-    AppendInteger(output, manifest.descriptorSetVersion);
-    output.insert(output.end(), manifest.uuid.begin(), manifest.uuid.end());
-    AppendInteger(output, static_cast<std::uint8_t>(manifest.architecture));
+    AppendInteger(output, normalized.schemaVersion);
+    AppendInteger(output, normalized.descriptorSetVersion);
+    if (!AppendIdentity(output, normalized.identity, error)) return false;
+    AppendInteger(output, static_cast<std::uint8_t>(normalized.architecture));
     output.insert(output.end(), 7, 0);
-    if (!AppendString(output, manifest.gameVersion, error)) return false;
-    AppendInteger(output, manifest.versionRva);
-    AppendInteger<std::uint32_t>(output, static_cast<std::uint32_t>(manifest.entries.size()));
-    for (const auto &entry : manifest.entries) {
+    if (!AppendString(output, normalized.gameVersion, error)) return false;
+    AppendInteger(output, normalized.versionRva);
+    AppendInteger<std::uint32_t>(output, static_cast<std::uint32_t>(normalized.entries.size()));
+    for (const auto &entry : normalized.entries) {
         if (!AppendString(output, entry.id, error)) return false;
         AppendInteger(output, entry.siteRva);
         AppendInteger(output, entry.expectedOffset);
@@ -179,17 +330,36 @@ bool Parse(const std::vector<std::uint8_t> &input, PatchManifest &manifest,
     std::array<std::uint8_t, 7> reserved{};
     std::uint32_t entryCount = 0;
     if (!reader.Integer(parsed.schemaVersion) ||
-        !reader.Integer(parsed.descriptorSetVersion) ||
-        !reader.Bytes(parsed.uuid.data(), parsed.uuid.size()) ||
-        !reader.Integer(architecture) ||
-        !reader.Bytes(reserved.data(), reserved.size()) ||
-        !reader.String(parsed.gameVersion) || !reader.Integer(parsed.versionRva) ||
-        !reader.Integer(entryCount)) {
+        !reader.Integer(parsed.descriptorSetVersion)) {
         error = "truncated manifest header";
         return false;
     }
-    if (reserved != std::array<std::uint8_t, 7>{}) {
-        error = "manifest contains unknown required header flags";
+    if (parsed.schemaVersion == kSchemaVersionV1) {
+        std::array<std::uint8_t, 16> uuid{};
+        if (!reader.Bytes(uuid.data(), uuid.size()) ||
+            !reader.Integer(architecture) ||
+            !reader.Bytes(reserved.data(), reserved.size()) ||
+            reserved != std::array<std::uint8_t, 7>{} ||
+            !reader.String(parsed.gameVersion) || !reader.Integer(parsed.versionRva) ||
+            !reader.Integer(entryCount)) {
+            error = "truncated manifest header";
+            return false;
+        }
+        parsed.identity = MakeMachOUuidIdentity(uuid);
+    } else if (parsed.schemaVersion == kSchemaVersion) {
+        if (!ReadIdentity(reader, parsed.identity, error)) {
+            return false;
+        }
+        if (!reader.Integer(architecture) ||
+            !reader.Bytes(reserved.data(), reserved.size()) ||
+            reserved != std::array<std::uint8_t, 7>{} ||
+            !reader.String(parsed.gameVersion) || !reader.Integer(parsed.versionRva) ||
+            !reader.Integer(entryCount)) {
+            error = "truncated manifest header";
+            return false;
+        }
+    } else {
+        error = "unsupported manifest schema version";
         return false;
     }
     parsed.architecture = static_cast<Architecture>(architecture);
@@ -243,6 +413,9 @@ bool Parse(const std::vector<std::uint8_t> &input, PatchManifest &manifest,
         return false;
     }
     if (!Validate(parsed, error)) return false;
+    // Normalize v1 manifests to the current schema version on load so callers
+    // always observe one identity representation.
+    parsed.schemaVersion = kSchemaVersion;
     manifest = std::move(parsed);
     return true;
 }
@@ -296,7 +469,7 @@ bool ReadFile(const std::string &path, PatchManifest &manifest, std::string &err
 }
 
 LoadedImageValidation ValidateLoadedImage(
-    const PatchManifest &manifest, const std::array<std::uint8_t, 16> &loadedUuid,
+    const PatchManifest &manifest, const ImageIdentity &loadedIdentity,
     const std::string &loadedVersion, patch::Address loadedImageBase,
     patch::Memory &memory) {
     LoadedImageValidation result;
@@ -305,32 +478,55 @@ LoadedImageValidation ValidateLoadedImage(
         result.error = std::move(validationError);
         return result;
     }
-    if (manifest.uuid != loadedUuid) {
-        result.error = "manifest LC_UUID does not match the loaded game; rerun the installer";
+    if (manifest.identity.kind != loadedIdentity.kind) {
+        std::ostringstream message;
+        message << "manifest identity kind " << ToString(manifest.identity.kind)
+                << " does not match loaded image kind "
+                << ToString(loadedIdentity.kind) << "; rerun the installer";
+        result.error = message.str();
+        return result;
+    }
+    if (manifest.identity != loadedIdentity) {
+        if (manifest.identity.kind == ImageIdentityKind::MachOUuid) {
+            result.error = "manifest LC_UUID does not match the loaded game; rerun the installer";
+        } else {
+            result.error = "manifest file SHA-256 does not match the loaded game; rerun the installer";
+        }
         return result;
     }
     std::string regionError;
-    const auto mainModule = memory.MainModule(regionError);
-    if (!mainModule) {
+    auto executableRegions =
+        memory.MainModuleRegions(patch::RegionPurpose::ExecutableSearch, regionError);
+    if (!regionError.empty()) {
         result.error = "could not validate manifest RVAs against the main image: " +
                        regionError;
         return result;
     }
-    const auto withinMainModule = [&mainModule](patch::Address address,
-                                                std::size_t size) {
-        if (size == 0 || address < mainModule->address) return false;
-        const auto offset = address - mainModule->address;
-        return offset <= mainModule->size && size <= mainModule->size - offset;
+    if (executableRegions.empty()) {
+        const auto fallback = memory.MainModule(regionError);
+        if (!fallback) {
+            result.error = "could not validate manifest RVAs against the main image: " +
+                           regionError;
+            return result;
+        }
+        executableRegions.push_back(*fallback);
+    }
+    const auto withinExecutable = [&executableRegions](patch::Address address,
+                                                       std::size_t size) {
+        if (size == 0) return false;
+        for (const auto &region : executableRegions) {
+            if (address < region.address) continue;
+            const auto offset = address - region.address;
+            if (offset <= region.size && size <= region.size - offset) {
+                return true;
+            }
+        }
+        return false;
     };
     std::string actualVersion = loadedVersion;
     if (actualVersion.empty()) {
         if (manifest.versionRva > std::numeric_limits<patch::Address>::max() - loadedImageBase) {
             result.error = "manifest version RVA overflows the loaded address space";
-            return result;
-        }
-        if (!withinMainModule(loadedImageBase + manifest.versionRva,
-                              manifest.gameVersion.size())) {
-            result.error = "manifest version RVA is outside the loaded main image";
             return result;
         }
         std::vector<std::uint8_t> versionBytes(manifest.gameVersion.size());
@@ -342,7 +538,7 @@ LoadedImageValidation ValidateLoadedImage(
         }
         actualVersion.assign(versionBytes.begin(), versionBytes.end());
     }
-    if (manifest.gameVersion != actualVersion) {
+    if (!GameVersionsMatch(manifest.gameVersion, actualVersion)) {
         result.error = "manifest game version is stale; rerun the installer";
         return result;
     }
@@ -356,7 +552,7 @@ LoadedImageValidation ValidateLoadedImage(
             return result;
         }
         const patch::Address site = loadedImageBase + entry.siteRva;
-        if (!withinMainModule(site, 1)) {
+        if (!withinExecutable(site, 1)) {
             result.error = "manifest site RVA is outside the loaded main image";
             result.sites.clear();
             return result;
@@ -381,8 +577,8 @@ LoadedImageValidation ValidateLoadedImage(
             result.sites.clear();
             return result;
         }
-        if (!withinMainModule(*expectedAddress, entry.expectedBytes.size()) ||
-            !withinMainModule(*mutationAddress, entry.overwriteWidth)) {
+        if (!withinExecutable(*expectedAddress, entry.expectedBytes.size()) ||
+            !withinExecutable(*mutationAddress, entry.overwriteWidth)) {
             result.error = "manifest patch span is outside the loaded main image";
             result.sites.clear();
             return result;
@@ -410,7 +606,7 @@ LoadedImageValidation ValidateLoadedImage(
                 result.sites.clear();
                 return result;
             }
-            if (!withinMainModule(*address, 1)) {
+            if (!withinExecutable(*address, 1)) {
                 result.error = "manifest continuation is outside the loaded main image";
                 result.sites.clear();
                 return result;
@@ -421,6 +617,14 @@ LoadedImageValidation ValidateLoadedImage(
     }
     result.failedPatchId.clear();
     return result;
+}
+
+LoadedImageValidation ValidateLoadedImage(
+    const PatchManifest &manifest, const std::array<std::uint8_t, 16> &loadedUuid,
+    const std::string &loadedVersion, patch::Address loadedImageBase,
+    patch::Memory &memory) {
+    return ValidateLoadedImage(manifest, MakeMachOUuidIdentity(loadedUuid),
+                               loadedVersion, loadedImageBase, memory);
 }
 
 ManifestSiteProvider::ManifestSiteProvider(const LoadedImageValidation &validation) {

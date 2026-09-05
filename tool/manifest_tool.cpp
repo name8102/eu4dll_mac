@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
     }
 
     eu4dll::manifest::PatchManifest manifest;
-    manifest.uuid = file->Uuid();
+    manifest.SetUuid(file->Uuid());
     manifest.gameVersion = file->Version();
     manifest.versionRva = file->VersionRva();
     eu4dll::patch::PatchRuntime runtime(memory);

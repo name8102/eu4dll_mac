@@ -23,8 +23,14 @@ const char *ToString(PatchOperation operation) {
             return "verify-original-bytes";
         case PatchOperation::CalculateMutation:
             return "calculate-mutation";
+        case PatchOperation::StageBranch:
+            return "stage-branch";
         case PatchOperation::WriteMutation:
             return "write-mutation";
+        case PatchOperation::CommitBatch:
+            return "commit-batch";
+        case PatchOperation::Rollback:
+            return "rollback";
         case PatchOperation::OptimizeHook:
             return "optimize-hook";
         case PatchOperation::InstallFeature:

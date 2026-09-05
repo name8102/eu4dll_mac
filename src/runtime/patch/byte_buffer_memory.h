@@ -21,6 +21,8 @@ public:
     bool ReadCString(Address address, std::size_t maxSize, std::string &value,
                      std::string &error) const override;
     std::optional<MemoryRegion> MainModule(std::string &error) const override;
+    std::vector<MemoryRegion> MainModuleRegions(
+        RegionPurpose purpose, std::string &error) const override;
     std::optional<Address> ResolveSymbol(const std::string &symbol,
                                          std::string &error) const override;
 

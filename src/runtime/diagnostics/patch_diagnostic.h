@@ -15,7 +15,10 @@ enum class PatchOperation {
     LocatePattern,
     VerifyOriginalBytes,
     CalculateMutation,
+    StageBranch,
     WriteMutation,
+    CommitBatch,
+    Rollback,
     OptimizeHook,
     InstallFeature,
 };

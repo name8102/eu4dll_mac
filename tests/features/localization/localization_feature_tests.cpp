@@ -6,6 +6,7 @@
 #include "runtime/patch/byte_buffer_memory.h"
 #include "targets/eu4_1_37_5/macos_x86_64/localization_features/localization_patch.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>

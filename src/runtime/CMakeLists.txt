@@ -5,9 +5,14 @@ add_library(eu4dll_runtime STATIC
         diagnostics/startup_diagnostics.h
         manifest/patch_manifest.cpp
         manifest/patch_manifest.h
+        patch/branch_resolver.cpp
+        patch/branch_resolver.h
         patch/byte_buffer_memory.cpp
         patch/byte_buffer_memory.h
+        patch/memory.cpp
         patch/memory.h
+        patch/patch_batch.cpp
+        patch/patch_batch.h
         patch/patch_runtime.cpp
         patch/patch_runtime.h)
 target_compile_features(eu4dll_runtime PUBLIC cxx_std_17)
